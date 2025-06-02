@@ -7,25 +7,30 @@ function fixFrenchAccents(str) {
   return str.replace(/�/g, 'é');
 }
 
-// UPDATED DATA LOADING STRATEGY: Manual Fetch for local CSV, then PapaParse
 async function loadDataFromURLManualFetch(url) {
   const fundingGrid = document.getElementById('funding-grid');
-  fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem;">INITIATING LOCAL FILE FETCH PROTOCOL FROM: ${url}... PREPARING FOR GLORY.</div>`;
-  console.log(`Attempting to fetch local file: ${url}`);
+  fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem;">ATTEMPTING TO LOAD DATA FROM: ${url}... MAY THE BANDWIDTH BE WITH US.</div>`;
+  console.log(`Attempting to fetch from GitHub Pages: ${url}`);
 
   try {
     const response = await fetch(url, {
       method: 'GET',
-      // mode: 'cors', // mode: 'cors' is generally for cross-origin. For same-origin (local server) or file:///, default is fine.
-                     // If running on a local server, this request will be same-origin.
-                     // If running directly via file:///, browser security might block fetch. Always use a local server for development.
+      mode: 'cors', // Keep for now, GitHub Pages might be particular. Can test removing if it works without.
     });
 
     console.log("Fetch response received. Status:", response.status, "OK:", response.ok);
     
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "Could not read error response body.");
-      throw new Error(`HTTP error! Status: ${response.status}. URL: ${url}. Body: ${errorText.substring(0, 200)}. Ensure 'aides.csv' is in the project root and the dev server is running.`);
+      // Try to get more info from the response if it's an error
+      let errorDetails = `HTTP error! Status: ${response.status}. URL: ${url}.`;
+      try {
+        const errorText = await response.text();
+        errorDetails += ` Response body (first 200 chars): ${errorText.substring(0, 200)}`;
+      } catch (e) {
+        errorDetails += ` Could not read error response body.`;
+      }
+      errorDetails += `\nEnsure the file path is correct and accessible on GitHub Pages. Check the Network tab in browser dev tools for more clues.`;
+      throw new Error(errorDetails);
     }
 
     console.log("Response Headers:");
@@ -35,17 +40,15 @@ async function loadDataFromURLManualFetch(url) {
     
     const contentType = response.headers.get("content-type");
     console.log("Content-Type:", contentType);
+    // For GitHub Pages, CSVs are often served as text/plain or application/octet-stream
     if (!contentType || (!contentType.includes("csv") && !contentType.includes("text/plain") && !contentType.includes("application/octet-stream"))) {
-        console.warn("WARNING: Content-Type from server for local CSV is not explicitly CSV. It is:", contentType, ". Proceeding with PapaParse, fingers crossed.");
+        console.warn("WARNING: Content-Type from GitHub Pages is not explicitly CSV/text. It is:", contentType, ". Proceeding with PapaParse.");
     }
 
     const blob = await response.blob();
     
-    // Using TextDecoder for reliable ISO-8859-1 decoding
     const textDecoder = new TextDecoder('ISO-8859-1');
-    const fileAsText = await blob.text(); // Using blob.text() can guess encoding, TextDecoder is more explicit
-                                          // Let's stick to the explicit TextDecoder approach previously decided as more reliable
-    const decodedText = textDecoder.decode(await blob.arrayBuffer()); // Read blob as ArrayBuffer first for TextDecoder
+    const decodedText = textDecoder.decode(await blob.arrayBuffer());
 
     console.log("Data fetched and decoded via TextDecoder. Length:", decodedText.length, "Parsing with PapaParse...");
     
@@ -54,7 +57,7 @@ async function loadDataFromURLManualFetch(url) {
         header: true, 
         skipEmptyLines: true, 
         delimiter: ';',
-        chunkSize: CONFIG.CHUNK_SIZE,
+        chunkSize: CONFIG.CHUNK_SIZE, // Helps with processing large strings
         chunk: function(results) {
             const cleanedChunk = results.data.map(row => {
                 const cleanedRow = {};
@@ -62,12 +65,14 @@ async function loadDataFromURLManualFetch(url) {
                 return cleanedRow;
             });
             processedData = processedData.concat(cleanedChunk);
+            // Optional: Update a progress indicator here if needed for very large files
+            // console.log(`Processed chunk, total rows so far: ${processedData.length}`);
         },
         complete: function() {
-            console.log("PapaParse (from local fetch & TextDecoder) COMPLETE. Rows:", processedData.length);
+            console.log("PapaParse (from GitHub Pages fetch & TextDecoder) COMPLETE. Rows:", processedData.length);
             if (processedData.length === 0) {
-              console.warn("WARNING: No data parsed from local file or the file is empty. THIS IS SUBOPTIMAL.");
-              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION FAILED: Aucune donnée exploitée depuis le fichier local '${url}'. Vérifiez le fichier et la console.</div>`;
+              console.warn("WARNING: No data parsed from GitHub Pages file or the file is empty. CHECK THE CSV CONTENT AND PATH.");
+              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION COMPROMISED: Aucune donnée exploitée depuis le fichier sur GitHub Pages '${url}'. Vérifiez le fichier et la console.</div>`;
               window.currentAides = [];
               updateStatistics([]); createCharts([]); displayAidCards([]); initSearchAndFilters([]);
               return;
@@ -78,18 +83,18 @@ async function loadDataFromURLManualFetch(url) {
             document.getElementById('funding-list').scrollIntoView({ behavior: 'smooth' });
         },
         error: function(papaparseError) {
-            console.error("!!!PAPA PARSE FAILURE (POST-LOCAL FETCH)!!! DETAILS:", papaparseError);
-            fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">SYSTEM ERROR: Échec du parsing CSV du fichier local. <br>Diagnosis: ${papaparseError.message || 'Unknown PapaParse error'}. Check console.</div>`;
+            console.error("!!!PAPA PARSE FAILURE (POST-GITHUB PAGES FETCH)!!! DETAILS:", papaparseError);
+            fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">SYSTEM ERROR: Échec du parsing CSV du fichier depuis GitHub Pages. <br>Diagnosis: ${papaparseError.message || 'Unknown PapaParse error'}. Check console.</div>`;
         }
     });
 
   } catch (error) {
-    console.error("!!!LOCAL FETCH CRITICAL FAILURE!!! DETAILS:", error);
-    let reason = error.message || "Unknown fetch error. This is not the heroic outcome we wanted.";
+    console.error("!!!GITHUB PAGES FETCH CRITICAL FAILURE!!! DETAILS:", error);
+    let reason = error.message || "Unknown fetch error. The digital winds are not in our favor.";
     if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        reason += " This often indicates the file path is incorrect, the file is not accessible, or you're running `index.html` directly via `file:///` (use a local HTTP server like VS Code's Live Server).";
+        reason += " This could be a network issue, an incorrect URL, or a CORS problem if GitHub Pages is being unusually strict. Double-check the URL and Network tab.";
     }
-    fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">SYSTEM ERROR: Échec du chargement du fichier local '${url}'. <br>Diagnosis: ${reason}. <br>CHECK CONSOLE. ENSURE '${url}' EXISTS AND SERVER IS RUNNING.</div>`;
+    fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">SYSTEM ERROR: Échec du chargement du fichier depuis GitHub Pages '${url}'. <br>Diagnosis: ${reason}. <br>CHECK CONSOLE AND NETWORK TAB. ENSURE FILE EXISTS AT THE EXACT URL.</div>`;
   }
 }
 
@@ -563,18 +568,16 @@ function initModal() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  console.log("DOM LOADED. LOCAL CSV FILE PROTOCOL ENGAGED. SUCCESS IS THE ONLY OPTION.");
+  console.log("DOM LOADED. GITHUB PAGES CSV FILE PROTOCOL ENGAGED. AIMING FOR PEAK PERFORMANCE.");
   initModal(); 
   
-  // UPDATED to local file path
-  const DATA_URL = "aides.csv"; 
+  // UPDATED to absolute GitHub Pages URL
+  const DATA_URL = "https://bros-ai.github.io/Aide-Financement-Entreprise/aides.csv"; 
   
-  // Initialize UI elements with empty/default state
   updateStatistics([]);
   createCharts([]);
   displayAidCards([]); 
   initSearchAndFilters([]);
 
-  // Load data from the local CSV
   loadDataFromURLManualFetch(DATA_URL); 
 });
