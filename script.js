@@ -1,33 +1,43 @@
 // script.js
+'use strict'; // Enforce stricter parsing and error handling
 
 // Global chart instances
 let domainChart, sizeChart, regionChart, ageChart;
-const CONFIG = { CHUNK_SIZE: 1000, ITEM_HEIGHT: 320 }; // CHUNK_SIZE can be reduced for debugging stack overflows
-const MAX_STRING_LENGTH_FOR_ACCENT_FIX = 1 * 1024 * 1024; // 1MB limit for string processing by fixFrenchAccents
+const CONFIG = { CHUNK_SIZE: 1000, ITEM_HEIGHT: 320 };
 
+// START PATCH: Modified fixFrenchAccents for robustness
 function fixFrenchAccents(input) {
   if (typeof input !== 'string') {
     // console.warn(`fixFrenchAccents received non-string input (type: ${typeof input}, value: ${input}). Returning as is.`);
-    return input; // Return non-strings as they are
+    return input;
   }
   if (!input) { // Handles empty string
     return '';
   }
 
-  if (input.length > MAX_STRING_LENGTH_FOR_ACCENT_FIX) {
-    console.warn(`fixFrenchAccents: Input string exceeds ${MAX_STRING_LENGTH_FOR_ACCENT_FIX / (1024*1024)}MB (length: ${input.length}). Skipping accent fix for this string to prevent potential stack overflow. Content starts with: "${String(input).substring(0,100)}..."`);
-    return input; // Return original, very long string without attempting replacement
+  // Use Unicode escape sequence for the replacement character '�' (U+FFFD)
+  // This is crucial if the script.js file encoding itself is an issue.
+  const replacementCharUnicode = '\uFFFD';
+  const replacementCharRegex = /\uFFFD/g; // Regex using the Unicode escape
+
+  // Only attempt to replace if the character is actually in the string.
+  // Avoids unnecessary regex operations on clean strings.
+  if (input.indexOf(replacementCharUnicode) === -1) {
+    return input;
   }
 
   try {
-    // This regex is simple, stack overflow here is highly unusual for this regex itself.
-    // It usually points to an extremely large input string or an external issue.
-    return input.replace(/�/g, 'é');
+    // This regex is simple. A stack overflow here is highly unusual for this regex itself
+    // unless the input string is astronomically large or the JS engine is in a weird state.
+    // Using the Unicode escape in the regex ensures the character is correctly interpreted.
+    return input.replace(replacementCharRegex, 'é');
   } catch (e) {
-    console.error(`Error in fixFrenchAccents with input (first 100 chars): "${String(input).substring(0,100)}..."`, e);
-    return input; // Return original input on error
+    // Log more details if this still fails.
+    console.error(`CRITICAL Error in fixFrenchAccents. Input type: ${typeof input}, length: ${input?.length}. First 100 chars: "${String(input).substring(0,100)}..."`, e);
+    return input; // Return original input on error to prevent total crash
   }
 }
+// END PATCH
 
 async function loadDataFromURLManualFetch(url) {
   const fundingGrid = document.getElementById('funding-grid');
@@ -66,21 +76,21 @@ async function loadDataFromURLManualFetch(url) {
     }
 
     const blob = await response.blob();
-    const textDecoder = new TextDecoder('ISO-8859-1');
+    // Force ISO-8859-1 decoding as per previous working version and common CSV issues in French context
+    const textDecoder = new TextDecoder('ISO-8859-1'); 
     const decodedText = textDecoder.decode(await blob.arrayBuffer());
 
     console.log("Data fetched and decoded via TextDecoder. Length:", decodedText.length, "Parsing with PapaParse...");
     
     let processedData = [];
-    let rowCounter = 0; // For more detailed logging if needed
+    let rowCounter = 0; 
 
     Papa.parse(decodedText, { 
         header: true, 
         skipEmptyLines: true, 
         delimiter: ';',
         chunkSize: CONFIG.CHUNK_SIZE, 
-        chunk: function(results, parser) { // Added parser argument
-            // console.log(`Processing chunk. Rows in this chunk: ${results.data.length}. Total rows processed before this chunk: ${rowCounter}`);
+        chunk: function(results, parser) { 
             if (results.errors.length > 0) {
                 console.warn("PapaParse errors in this chunk:", results.errors);
                 results.errors.forEach(err => {
@@ -94,11 +104,7 @@ async function loadDataFromURLManualFetch(url) {
                   for (const key in row) {
                       if (Object.prototype.hasOwnProperty.call(row, key)) {
                           const originalValue = row[key];
-                          cleanedRow[key] = fixFrenchAccents(originalValue);
-                          // Verbose logging - uncomment if stack overflow persists to find problematic data
-                          // if (typeof originalValue === 'string' && originalValue.length > 5000) { // Log very long strings
-                          //   console.log(`Row ${globalRowIndex}, Key: ${key}, Original (type: ${typeof originalValue}, length: ${originalValue.length}): "${String(originalValue).substring(0,100)}..."`);
-                          // }
+                          cleanedRow[key] = fixFrenchAccents(originalValue); // Patched fixFrenchAccents will be called here
                       }
                   }
                   return cleanedRow;
@@ -107,16 +113,15 @@ async function loadDataFromURLManualFetch(url) {
               rowCounter += results.data.length;
             } catch (e) {
               console.error("Error during chunk processing (map or fixFrenchAccents):", e);
-              console.error("Problematic chunk data (first few rows):", results.data.slice(0,3)); // Log some of the data that caused the issue
-              parser.abort(); // Stop parsing if a chunk causes a critical error like stack overflow
+              console.error("Problematic chunk data (first few rows):", results.data.slice(0,3)); 
+              parser.abort(); 
               fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">CRITICAL ERROR during data processing. Parsing aborted. Check console.</div>`;
-              // Optionally, re-throw or handle more gracefully
-              throw e; // Re-throw to be caught by the outer try-catch if needed
+              throw e; 
             }
         },
         complete: function() {
             console.log(`PapaParse (from GitHub Pages fetch & TextDecoder) COMPLETE. Total rows acquired: ${processedData.length}`);
-            if (processedData.length === 0 && rowCounter === 0) { // Check if any rows were ever processed
+            if (processedData.length === 0 && rowCounter === 0) { 
               console.warn("WARNING: No data parsed from GitHub Pages file or the file is empty. CHECK THE CSV CONTENT AND PATH.");
               fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION COMPROMISED: Aucune donnée exploitée depuis le fichier sur GitHub Pages '${url}'. Vérifiez le fichier et la console.</div>`;
               window.currentAides = [];
@@ -126,17 +131,15 @@ async function loadDataFromURLManualFetch(url) {
             window.currentAides = processedData;
             updateStatistics(processedData); createCharts(processedData);
             displayAidCards(processedData); initSearchAndFilters(processedData);
-            // Scroll to funding list might be jarring if loading takes long, consider user experience
-            // document.getElementById('funding-list').scrollIntoView({ behavior: 'smooth' }); 
             console.log("Data processing complete, UI updated.");
         },
-        error: function(papaparseError, file) { // Added file argument
+        error: function(papaparseError, file) { 
             console.error("!!!PAPA PARSE OVERALL FAILURE!!! DETAILS:", papaparseError);
             fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">SYSTEM ERROR: Échec du parsing CSV du fichier depuis GitHub Pages. <br>Diagnosis: ${papaparseError.message || 'Unknown PapaParse error'}. Check console.</div>`;
         }
     });
 
-  } catch (error) { // This catches errors from fetch itself, or re-thrown errors from chunk processing
+  } catch (error) { 
     console.error("!!!GITHUB PAGES FETCH OR PROCESSING CRITICAL FAILURE!!! DETAILS:", error);
     let reason = error.message || "Unknown fetch or processing error.";
     if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
@@ -150,22 +153,22 @@ async function loadDataFromURLManualFetch(url) {
 
 
 function updateStatistics(aides) {
-  if (!aides) aides = [];
+  if (!Array.isArray(aides)) aides = []; // Ensure aides is an array
   document.getElementById('stat-total').textContent = aides.length;
-  const aidesNationales = aides.filter(aide => aide.couverture_geo === 'aide nationale');
+  const aidesNationales = aides.filter(aide => aide && aide.couverture_geo === 'aide nationale');
   document.getElementById('stat-national').textContent = aidesNationales.length;
-  const aidesTerritoriales = aides.filter(aide => aide.couverture_geo === 'aide territoriale');
+  const aidesTerritoriales = aides.filter(aide => aide && aide.couverture_geo === 'aide territoriale');
   document.getElementById('stat-territorial').textContent = aidesTerritoriales.length;
   
   let totalAmount = 0;
   let countWithAmount = 0;
   if (aides.length > 0) {
     aides.forEach(aide => {
-        const montantText = aide.aid_montant || '';
-        // Regex to find numbers, allowing for spaces as thousands separators
-        const montantMatch = montantText.match(/\d[\d\s]*\d*?/); // Adjusted to be less greedy with last \d*
+        if (!aide || !aide.aid_montant) return; // Guard against null/undefined aide or missing montant
+        const montantText = String(aide.aid_montant); // Ensure it's a string
+        const montantMatch = montantText.match(/\d[\d\s]*\d*?/); 
         if (montantMatch) {
-          const montantCleaned = montantMatch[0].replace(/\s/g, ''); // Remove spaces
+          const montantCleaned = montantMatch[0].replace(/\s/g, ''); 
           const montant = parseInt(montantCleaned, 10);
           if (!isNaN(montant)) {
               totalAmount += montant;
@@ -180,14 +183,14 @@ function updateStatistics(aides) {
 }
 
 function createCharts(aides) {
-  if (!aides) aides = [];
+  if (!Array.isArray(aides)) aides = []; // Ensure aides is an array
 
   const pieTooltipCallback = {
     callbacks: {
         label: function(context) {
             const label = context.label || '';
             const value = context.raw;
-            if (typeof value !== 'number') return `${label}: N/A`; // Handle non-numeric raw values
+            if (typeof value !== 'number') return `${label}: N/A`; 
             const total = context.chart.getDatasetMeta(0).total; 
             const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
             return `${label}: ${value} (${percentage}%)`;
@@ -199,7 +202,7 @@ function createCharts(aides) {
   const domainCounts = {};
   if (aides.length > 0) {
     aides.forEach(aide => {
-        if (aide.id_domaine && typeof aide.id_domaine === 'string') {
+        if (aide && aide.id_domaine && typeof aide.id_domaine === 'string') { // Added aide check
           const splitted = aide.id_domaine.split(',').map(s => s.trim());
           splitted.forEach(dom => {
               if (dom) { domainCounts[dom] = (domainCounts[dom] || 0) + 1; }
@@ -219,7 +222,7 @@ function createCharts(aides) {
     data: {
       labels: sortedDomains.length > 0 ? sortedDomains.map(d => d[0]) : ['Aucune donnée'],
       datasets: [{
-        data: sortedDomains.length > 0 ? sortedDomains.map(d => d[1]) : [1], // Default to 1 if no data for chart to render
+        data: sortedDomains.length > 0 ? sortedDomains.map(d => d[1]) : [1], 
         backgroundColor: sortedDomains.length > 0 ? ['#1e40af', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#10b981', '#34d399', '#1e3a8a'] : ['#cccccc']
       }]
     },
@@ -237,8 +240,9 @@ function createCharts(aides) {
   const sizeCounts = { 'Moins de 10': 0, '10-49': 0, '50-249': 0, '250 et plus': 0, 'Toutes tailles': 0, 'Non spécifié': 0 };
   if (aides.length > 0) {
     aides.forEach(aide => {
+        if (!aide) return; // Added aide check
         let found = false;
-        const effectifStr = (typeof aide.effectif === 'string' ? aide.effectif : '').toLowerCase();
+        const effectifStr = (aide.effectif && typeof aide.effectif === 'string' ? aide.effectif : '').toLowerCase();
         if (effectifStr) {
             if (effectifStr.includes('-10') || effectifStr.includes('-5')) { sizeCounts['Moins de 10']++; found = true; }
             else if (effectifStr.includes('10-49')) { sizeCounts['10-49']++; found = true; }
@@ -274,6 +278,7 @@ function createCharts(aides) {
   const regionCounts = { 'Nationale': 0, 'Territoriale': 0, 'Non spécifié': 0 };
   if (aides.length > 0) {
     aides.forEach(aide => {
+        if (!aide) return; // Added aide check
         if (aide.couverture_geo === 'aide nationale') regionCounts['Nationale']++;
         else if (aide.couverture_geo === 'aide territoriale') regionCounts['Territoriale']++;
         else regionCounts['Non spécifié']++;
@@ -305,7 +310,8 @@ function createCharts(aides) {
   const ageCounts = { 'Moins de 3 ans': 0, 'Plus de 3 ans': 0, 'Tout âge': 0, 'Non spécifié': 0 };
   if (aides.length > 0) {
     aides.forEach(aide => {
-        const ageEntrepriseStr = typeof aide.age_entreprise === 'string' ? aide.age_entreprise : '';
+        if (!aide) return; // Added aide check
+        const ageEntrepriseStr = aide.age_entreprise && typeof aide.age_entreprise === 'string' ? aide.age_entreprise : '';
         if (!ageEntrepriseStr) ageCounts['Non spécifié']++;
         else if (ageEntrepriseStr.includes('- de 3 ans')) ageCounts['Moins de 3 ans']++;
         else if (ageEntrepriseStr.includes('+ de 3 ans')) ageCounts['Plus de 3 ans']++;
@@ -343,7 +349,7 @@ function displayAidCards(aides, page = 1) {
   gridContainer.innerHTML = ""; 
   const itemsPerPage = 6; 
   const startIndex = (page - 1) * itemsPerPage;
-  const allAides = aides || []; // Ensure allAides is an array
+  const allAides = Array.isArray(aides) ? aides : []; // Ensure allAides is an array
   const endIndex = Math.min(startIndex + itemsPerPage, allAides.length);
   const displayedAides = allAides.slice(startIndex, endIndex);
   
@@ -355,12 +361,12 @@ function displayAidCards(aides, page = 1) {
   }
   
   displayedAides.forEach(aide => {
-    if (!aide) return; // Skip if aide is somehow null/undefined in the array
+    if (!aide) return; 
     const card = document.createElement('div');
     card.className = 'funding-card';
-    card.dataset.id = aide.id_aid || `unknown-${Math.random()}`; 
+    card.dataset.id = aide.id_aid || `unknown-${Math.random().toString(36).substr(2, 9)}`; 
     
-    const effectifs = (typeof aide.effectif === 'string' ? aide.effectif : 'Non spécifié')
+    const effectifs = (aide.effectif && typeof aide.effectif === 'string' ? aide.effectif : 'Non spécifié')
       .split(',')
       .map(eff => eff.trim())
       .map(eff => {
@@ -370,8 +376,8 @@ function displayAidCards(aides, page = 1) {
       })
       .join(', ');
       
-    const ageEntreprise = (typeof aide.age_entreprise === 'string' ? aide.age_entreprise : 'Non spécifié');
-    const categories = (typeof aide.id_domaine === 'string' ? aide.id_domaine : 'Non spécifié').split(',').map(cat => cat.trim()).join(', ');
+    const ageEntreprise = (aide.age_entreprise && typeof aide.age_entreprise === 'string' ? aide.age_entreprise : 'Non spécifié');
+    const categories = (aide.id_domaine && typeof aide.id_domaine === 'string' ? aide.id_domaine : 'Non spécifié').split(',').map(cat => cat.trim()).join(', ');
     
     card.innerHTML = `
       <div class="funding-card-header">
@@ -381,11 +387,11 @@ function displayAidCards(aides, page = 1) {
       <div class="funding-card-body">
         <div class="funding-info-item">
           <div class="funding-info-label">Objectif</div>
-          <div class="funding-info-value">${aide.aid_objet ? truncateText(aide.aid_objet, 150) : 'Non spécifié'}</div>
+          <div class="funding-info-value">${aide.aid_objet ? truncateText(String(aide.aid_objet), 150) : 'Non spécifié'}</div>
         </div>
         <div class="funding-info-item">
           <div class="funding-info-label">Bénéficiaires</div>
-          <div class="funding-info-value">${aide.aid_benef ? truncateText(aide.aid_benef, 100) : 'Non spécifié'}</div>
+          <div class="funding-info-value">${aide.aid_benef ? truncateText(String(aide.aid_benef), 100) : 'Non spécifié'}</div>
         </div>
       </div>
       <div class="funding-card-footer">
@@ -407,7 +413,7 @@ function displayAidCards(aides, page = 1) {
         return;
       }
       const sourceAides = window.currentAides || [];
-      const aide = sourceAides.find(a => a && a.id_aid === aideId); // Check if 'a' is defined
+      const aide = sourceAides.find(a => a && String(a.id_aid) === aideId); 
       if (aide) { showAideDetails(aide); }
       else { console.error("Aide non trouvée pour ID:", aideId, "Source (first 5):", sourceAides.slice(0,5)); } 
     });
@@ -417,7 +423,7 @@ function displayAidCards(aides, page = 1) {
 }
 
 function truncateText(text, maxLength) {
-  if (typeof text !== 'string') return 'Non spécifié'; 
+  if (typeof text !== 'string') text = String(text); // Coerce to string if not already
   return text.length <= maxLength ? text : text.substring(0, maxLength) + '...'; 
 }
 
@@ -512,7 +518,7 @@ function createPagination(totalItems, itemsPerPage, currentPage) {
 }
 
 function initSearchAndFilters(aidesInput) {
-  const aides = aidesInput || []; 
+  const aides = Array.isArray(aidesInput) ? aidesInput : []; 
   const searchForm = document.getElementById('search-form');
   const applyFiltersBtn = document.getElementById('apply-filters');
   const resetFiltersBtn = document.getElementById('reset-filters');
@@ -522,7 +528,7 @@ function initSearchAndFilters(aidesInput) {
     searchForm.addEventListener('submit', function(e) {
       e.preventDefault(); 
       const searchInput = document.getElementById('search-input');
-      const searchTerm = searchInput ? searchInput.value.toLowerCase() : "";
+      const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
       const filteredAides = getFilteredAides(window.currentAides || [], searchTerm); 
       displayAidCards(filteredAides, 1); 
     });
@@ -531,7 +537,7 @@ function initSearchAndFilters(aidesInput) {
   if(applyFiltersBtn) {
     applyFiltersBtn.addEventListener('click', function() {
       const searchInput = document.getElementById('search-input');
-      const searchTerm = searchInput ? searchInput.value.toLowerCase() : ""; // Also consider search term with filters
+      const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : ""; 
       const filteredAides = getFilteredAides(window.currentAides || [], searchTerm); 
       displayAidCards(filteredAides, 1);
     });
@@ -568,9 +574,9 @@ function initSearchAndFilters(aidesInput) {
           }
       });
     }
-    const sortedCategories = Array.from(categories).sort(); 
+    const sortedCategories = Array.from(categories).sort((a, b) => a.localeCompare(b, 'fr')); 
     
-    // Clear existing options except the first "Toutes catégories"
+    
     while (categorySelect.options.length > 1) {
       categorySelect.remove(1);
     }
@@ -584,7 +590,7 @@ function initSearchAndFilters(aidesInput) {
 }
 
 function getFilteredAides(allAidesInput, searchTerm = null) {
-  const allAides = allAidesInput || []; 
+  const allAides = Array.isArray(allAidesInput) ? allAidesInput : []; 
   if (!Array.isArray(allAides)) {
     console.error("getFilteredAides received non-array input for allAides:", allAides);
     return []; 
@@ -596,52 +602,53 @@ function getFilteredAides(allAidesInput, searchTerm = null) {
   const companyAgeEl = document.getElementById('company-age');
   const geographyEl = document.getElementById('geography');
 
-  const currentSearchTerm = searchTerm !== null ? searchTerm : (searchInputEl ? searchInputEl.value.toLowerCase() : "");
+  const currentSearchTerm = (searchTerm !== null ? searchTerm : (searchInputEl ? searchInputEl.value.toLowerCase().trim() : "")).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const category = categoryEl ? categoryEl.value : "";
   const companySize = companySizeEl ? companySizeEl.value : "";
   const companyAge = companyAgeEl ? companyAgeEl.value : "";
   const geography = geographyEl ? geographyEl.value : "";
   
   return allAides.filter(aide => {
-    if (!aide) return false; // Skip if aide is null/undefined
+    if (!aide) return false;
 
-    // Search term filter (checks multiple fields)
     if (currentSearchTerm) {
-      const nameMatch = aide.aid_nom && typeof aide.aid_nom === 'string' && aide.aid_nom.toLowerCase().includes(currentSearchTerm);
-      const objetMatch = aide.aid_objet && typeof aide.aid_objet === 'string' && aide.aid_objet.toLowerCase().includes(currentSearchTerm);
-      const benefMatch = aide.aid_benef && typeof aide.aid_benef === 'string' && aide.aid_benef.toLowerCase().includes(currentSearchTerm);
-      const domaineMatch = aide.id_domaine && typeof aide.id_domaine === 'string' && aide.id_domaine.toLowerCase().includes(currentSearchTerm);
-      if (!nameMatch && !objetMatch && !benefMatch && !domaineMatch) return false;
+      const name = (aide.aid_nom && typeof aide.aid_nom === 'string' ? aide.aid_nom : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const objet = (aide.aid_objet && typeof aide.aid_objet === 'string' ? aide.aid_objet : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const benef = (aide.aid_benef && typeof aide.aid_benef === 'string' ? aide.aid_benef : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const domaine = (aide.id_domaine && typeof aide.id_domaine === 'string' ? aide.id_domaine : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      
+      if (!name.includes(currentSearchTerm) && 
+          !objet.includes(currentSearchTerm) && 
+          !benef.includes(currentSearchTerm) && 
+          !domaine.includes(currentSearchTerm)) {
+        return false;
+      }
     }
     
-    // Category filter
     if (category) {
       if (!aide.id_domaine || typeof aide.id_domaine !== 'string' || !aide.id_domaine.split(',').map(cat => cat.trim()).includes(category)) return false;
     }
     
-    // Company size filter
     if (companySize) { 
         const aideEffectif = (aide.effectif && typeof aide.effectif === 'string' ? aide.effectif : '').toLowerCase();
-        let sizeMatch = false;
-        if (!aideEffectif && companySize) return false; // If no effectif data but filter is set
-
-        switch(companySize) {
-            case "-10": sizeMatch = aideEffectif.includes('-10') || aideEffectif.includes('-5'); break;
-            case "10-49": sizeMatch = aideEffectif.includes('10-49'); break;
-            case "50-249": sizeMatch = aideEffectif.includes('50-249'); break;
-            case "250 et plus": sizeMatch = aideEffectif.includes('250 et plus'); break;
-            // Default case not needed as empty companySize means no filter
+        if (!aideEffectif && companySize) return false; 
+        let sizeMatch = aideEffectif.includes('tous') || aideEffectif.includes('all'); // Default true if "tous" is present
+        if (!sizeMatch) { // Only check specific sizes if "tous" is not there
+            switch(companySize) {
+                case "-10": sizeMatch = aideEffectif.includes('-10') || aideEffectif.includes('-5'); break;
+                case "10-49": sizeMatch = aideEffectif.includes('10-49'); break;
+                case "50-249": sizeMatch = aideEffectif.includes('50-249'); break;
+                case "250 et plus": sizeMatch = aideEffectif.includes('250 et plus'); break;
+            }
         }
-        if (!sizeMatch) return false;
+        if (!sizeMatch && ! (aideEffectif.includes('tous') || aideEffectif.includes('all')) ) return false; // if specific filter doesn't match AND it's not for "tous"
     }
     
-    // Company age filter
     if (companyAge) {
       const aideAge = (aide.age_entreprise && typeof aide.age_entreprise === 'string' ? aide.age_entreprise : '');
-      if (!aideAge.includes(companyAge)) return false;
+      if (!aideAge.includes(companyAge) && !aideAge.toLowerCase().includes('tout') && !aideAge.toLowerCase().includes('all')) return false;
     }
 
-    // Geography filter
     if (geography) {
       if (aide.couverture_geo !== geography) return false;
     }
@@ -670,13 +677,13 @@ function showAideDetails(aide) {
   modalSubtitle.textContent = `${(aide.couverture_geo || 'Non spécifié')} - ${categories}`;
   
   let bodyContent = "";
-  const addSection = (title, content) => {
-    const currentContent = content && typeof content === 'string' ? content.trim() : '';
-    if (currentContent) {
+  const addSection = (title, contentInput) => {
+    const content = contentInput && typeof contentInput === 'string' ? String(contentInput).trim() : ''; // Ensure string
+    if (content) { // Only add section if content is not empty
       bodyContent += `
         <div class="modal-section">
           <h3 class="modal-section-title">${title}</h3>
-          <div class="modal-text">${currentContent}</div>
+          <div class="modal-text">${content}</div>
         </div>`;
     }
   };
@@ -690,7 +697,8 @@ function showAideDetails(aide) {
   let complementInfo = `<p><strong>Taille d'entreprise :</strong> ${(aide.effectif || 'Non spécifié')}</p>
                         <p><strong>Âge d'entreprise :</strong> ${(aide.age_entreprise || 'Non spécifié')}</p>
                         <p><strong>Date de fin :</strong> ${(aide.aid_validation || 'Non spécifié')}</p>`;
-  addSection('Informations complémentaires', complementInfo);
+  // Only add complementInfo if it's not just default values, or always add it:
+  addSection('Informations complémentaires', complementInfo); 
   
   let linksContent = "";
   if (aide.complements_sources && typeof aide.complements_sources === 'string') {
@@ -701,24 +709,24 @@ function showAideDetails(aide) {
   }
   if (linksContent) addSection('Liens utiles', linksContent);
   
-  modalBody.innerHTML = bodyContent;
+  modalBody.innerHTML = bodyContent || '<p>Aucun détail spécifique disponible pour cette aide.</p>'; // Fallback if no content
   modal.classList.add('open'); 
 }
 
 function formatLinks(text) {
   if (!text || typeof text !== 'string') return "";
   const urlRegex = /(https?:\/\/[^\s"<>]+)/g; 
-  return text.replace(urlRegex, '<a href="$1" target="_blank" style="color:var(--primary); text-decoration:underline;">$1</a>');
+  return text.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:var(--primary); text-decoration:underline;">$1</a>');
 }
 
 function initModal() {
   const modal = document.getElementById('detail-modal');
-  const modalContent = document.querySelector('.modal-content');
+  const modalContent = document.querySelector('.modal-content'); // Ensure this selector is correct
   const closeBtn = document.getElementById('modal-close');
   const closeBtnFooter = document.getElementById('modal-close-btn');
   
   if (!modal || !modalContent || !closeBtn || !closeBtnFooter) {
-    console.warn("Modal elements missing, modal functionality might be impaired.");
+    console.warn("Modal elements missing, modal functionality might be impaired. Ensure modal HTML is correct.");
     return;
   }
   
@@ -729,7 +737,8 @@ function initModal() {
   modal.addEventListener('click', (e) => { 
     if (e.target === modal) closeModal(); 
   });
-  modalContent.addEventListener('click', (e) => e.stopPropagation());
+  // Prevent clicks inside modal content from closing modal (already present, good)
+  modalContent.addEventListener('click', (e) => e.stopPropagation()); 
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -738,22 +747,20 @@ document.addEventListener('DOMContentLoaded', function() {
   
   const DATA_URL = "https://bros-ai.github.io/Aide-Financement-Entreprise/aides.csv"; 
   
-  // Initialize UI elements with empty/default state before data loads
   updateStatistics([]);
-  createCharts([]); // This will create charts with "No data" message
-  displayAidCards([]); // This will show "No results" message
-  initSearchAndFilters([]); // Initialize filters, category dropdown will be empty until data loads
+  createCharts([]); 
+  displayAidCards([]); 
+  initSearchAndFilters([]); 
 
   loadDataFromURLManualFetch(DATA_URL)
     .then(() => {
-      // This .then() might not be reached if loadDataFromURLManualFetch doesn't return a promise
-      // or if an error inside PapaParse's async callbacks isn't bubbled up.
-      // The logic for updating UI after data load is already in Papa.complete.
-      console.log("Initial data load attempt finished (async).");
+      console.log("Initial data load attempt finished (async). UI should be updated via Papa.complete.");
     })
     .catch(error => {
-      // This .catch() will primarily catch errors from the fetch() promise itself,
-      // or if an error is explicitly re-thrown from PapaParse callbacks and bubbled up.
-      console.error("Error during loadDataFromURLManualFetch promise chain:", error);
+      console.error("Error during loadDataFromURLManualFetch promise chain execution:", error);
+      const fundingGrid = document.getElementById('funding-grid');
+      if (fundingGrid) {
+        fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">FATAL ERROR: Impossible de charger les données. Contactez l'administrateur. <br>Détail: ${error.message}</div>`;
+      }
     });
 });
