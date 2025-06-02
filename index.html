@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AideFinder - Trouvez des financements pour votre projet</title>
+  <!-- External Libraries - These stay. They're not YOUR code. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+  <!-- Your Styles - Where they belong. -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <nav>
+        <a href="#" class="logo">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+               viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               class="logo-icon">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+          Aide<span>Finder</span>
+        </a>
+        <div class="nav-links">
+          <a href="#search">Rechercher</a>
+          <a href="#how-it-works">Comment ça marche</a>
+          <a href="#funding-list">Aides disponibles</a>
+          <a href="#faq">FAQ</a>
+        </div>
+        <a href="#" class="cta-button">Mon Espace</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container hero-container">
+      <div class="hero-badge">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+             viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+        Trouvez le financement idéal pour votre projet
+      </div>
+      <h1 class="hero-title">
+        Découvrez les <span>Subventions & Aides</span> pour votre entreprise en France
+      </h1>
+      <p class="hero-subtitle">
+        Notre plateforme aide les entrepreneurs, startups et entreprises en croissance à trouver et obtenir le soutien financier adapté à leurs projets.
+      </p>
+      <div class="search-form-container" id="search">
+        <div class="form-shine"></div>
+        <form class="search-form" id="search-form">
+          <div class="search-input-wrapper">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+                 viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 class="search-icon">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" class="search-input" id="search-input" placeholder="Rechercher des subventions, aides ou financements..." />
+          </div>
+          <button type="submit" class="search-submit">Rechercher</button>
+        </form>
+      </div>
+      <!-- File upload widget? GONE. We're not dealing with user error. -->
+    </div>
+  </section>
+
+  <section class="stats-section">
+    <div class="container">
+      <div class="stats-container">
+        <div class="stat-item">
+          <div class="stat-value" id="stat-total">0</div>
+          <div class="stat-label">Aides disponibles</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-national">0</div>
+          <div class="stat-label">Aides nationales</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-territorial">0</div>
+          <div class="stat-label">Aides territoriales</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-montant">0 €</div>
+          <div class="stat-label">Montant moyen</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="charts-section">
+    <div class="container">
+      <h2 class="charts-title">Panorama des aides disponibles</h2>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h3 class="chart-title">Répartition par domaine</h3>
+          <div class="chart-container">
+            <canvas id="domain-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-card">
+          <h3 class="chart-title">Répartition par taille d'entreprise</h3>
+          <div class="chart-container">
+            <canvas id="size-chart"></canvas>
+          </div>
+        </div>
+        <!-- Chart containers for region and age will be dynamically managed by JS if needed, or pre-declare them -->
+        <div class="chart-card" id="region-chart-card">
+            <h3 class="chart-title">Répartition Nationale/Territoriale</h3>
+            <div class="chart-container">
+              <canvas id="region-chart"></canvas>
+            </div>
+        </div>
+        <div class="chart-card" id="age-chart-card">
+            <h3 class="chart-title">Répartition par âge d'entreprise requis</h3>
+            <div class="chart-container">
+              <canvas id="age-chart"></canvas>
+            </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="filter-section">
+    <div class="container">
+      <h2 class="filter-title">Filtrer les aides disponibles</h2>
+      <div class="filter-container">
+        <div class="filter-group">
+          <label for="category" class="filter-label">Catégorie</label>
+          <select id="category" class="filter-select">
+            <option value="">Toutes catégories</option>
+            <!-- Options will be populated by JS -->
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="company-size" class="filter-label">Taille d'entreprise</label>
+          <select id="company-size" class="filter-select">
+            <option value="">Toutes tailles</option>
+            <option value="-10">Moins de 10 salariés</option>
+            <option value="10-49">10-49 salariés</option>
+            <option value="50-249">50-249 salariés</option>
+            <option value="250 et plus">250+ salariés</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="company-age" class="filter-label">Âge de l'entreprise</label>
+          <select id="company-age" class="filter-select">
+            <option value="">Tous âges</option>
+            <option value="- de 3 ans">Moins de 3 ans</option>
+            <option value="+ de 3 ans">Plus de 3 ans</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="geography" class="filter-label">Couverture géographique</label>
+          <select id="geography" class="filter-select">
+            <option value="">Toutes régions</option>
+            <option value="aide nationale">Nationale</option>
+            <option value="aide territoriale">Territoriale</option>
+          </select>
+        </div>
+      </div>
+      <div class="filter-buttons">
+        <button class="cta-button" id="apply-filters">Appliquer les filtres</button>
+        <button class="cta-button secondary" id="reset-filters">Réinitialiser</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="funding-list" id="funding-list">
+    <div class="container">
+      <h2 class="funding-list-title">Aides disponibles</h2>
+      <div class="funding-grid" id="funding-grid">
+        <!-- JS will populate this. Or show a spinner. Or an error. The truth hurts. -->
+        <div class="loading" style="text-align: center; padding: 2rem;">
+          <div class="loading-spinner" style="width: 50px; height: 50px; border: 5px solid var(--light); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+          <p style="margin-top: 1rem; color: var(--gray);">Chargement...</p>
+        </div>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  </section>
+
+  <section class="how-it-works" id="how-it-works">
+    <div class="container">
+      <div class="how-it-works-header">
+        <h2 class="features-title">Comment fonctionne AideFinder</h2>
+        <p class="features-subtitle">
+          Notre plateforme vous aide à trouver et obtenir le financement adapté à votre projet
+        </p>
+      </div>
+      <div class="steps-container">
+        <div class="step-card">
+          <div class="step-number">01</div>
+          <h3 class="step-title">Définissez votre projet</h3>
+          <p class="step-description">
+            Décrivez votre entreprise, votre projet et vos besoins de financement.
+            Plus vous fournissez de détails, mieux nous pouvons vous proposer des options adaptées.
+          </p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">02</div>
+          <h3 class="step-title">Découvrez les opportunités</h3>
+          <p class="step-description">
+            Notre système d'analyse étudie votre profil et vous présente les subventions, aides et programmes pertinents disponibles en France.
+          </p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">03</div>
+          <h3 class="step-title">Obtenez un accompagnement</h3>
+          <p class="step-description">
+            Accédez aux guides et conseils d'experts pour préparer des dossiers convaincants.
+          </p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">04</div>
+          <h3 class="step-title">Sécurisez votre financement</h3>
+          <p class="step-description">
+            Soumettez vos demandes et suivez leur statut pour gérer efficacement les fonds obtenus.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faq-section" id="faq">
+    <div class="container">
+      <div class="faq-header">
+        <h2 class="features-title">Questions fréquentes</h2>
+        <p class="features-subtitle">
+          Trouvez des réponses aux questions sur les financements
+        </p>
+      </div>
+      <div class="faq-grid">
+        <div class="faq-item">
+          <h3 class="faq-question">Quels types de financement puis-je trouver sur AideFinder ?</h3>
+          <p class="faq-answer">
+            Subventions, aides, crédits d'impôt, prêts garantis et autres dispositifs financés par les autorités françaises.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">Mon entreprise est-elle éligible aux aides publiques ?</h3>
+          <p class="faq-answer">
+            L'éligibilité dépend de critères tels que la taille, l'âge, l'emplacement et le secteur d'activité.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">Combien de temps dure le processus de demande ?</h3>
+          <p class="faq-answer">
+            Les délais varient d'une semaine à plusieurs mois selon le dispositif.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">Puis-je demander plusieurs financements simultanément ?</h3>
+          <p class="faq-answer">
+            Oui, mais certains programmes peuvent comporter des restrictions sur le cumul.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">Dois-je rembourser le financement reçu ?</h3>
+          <p class="faq-answer">
+            Les subventions ne sont pas remboursables, tandis que les prêts doivent être remboursés.
+          </p>
+        </div>
+        <div class="faq-item">
+          <h3 class="faq-question">Comment AideFinder peut-il m'aider dans ma demande ?</h3>
+          <p class="faq-answer">
+            Nous fournissons guides, modèles et conseils d'experts pour maximiser vos chances de succès.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-section">
+    <div class="container cta-container">
+      <h2 class="cta-title">Prêt à trouver le financement idéal ?</h2>
+      <p class="cta-description">
+        Rejoignez des milliers d'entrepreneurs qui ont obtenu des financements grâce à notre plateforme.
+      </p>
+      <div class="cta-buttons">
+        <a href="#" class="cta-button">Créer un compte gratuit</a>
+        <a href="#" class="cta-button accent">Contacter nos experts</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div>
+          <a href="#" class="footer-logo">Aide<span>Finder</span></a>
+          <p class="footer-description">
+            Nous aidons les entreprises à trouver le financement adapté grâce à une base de données complète.
+          </p>
+          <div class="social-links">
+            <a href="#" class="social-link">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
+              </svg>
+            </a>
+            <a href="#" class="social-link">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53
+                         4.48 4.48 0 0 0-7.86 3v1
+                         A10.66 10.66 0 0 1 3 4s-4 9 5 13
+                         a11.64 11.64 0 0 1-7 2
+                         c9 5 20 0 20-11.5
+                         a4.5 4.5 0 0 0-.08-.83
+                         A7.72 7.72 0 0 0 23 3z"></path>
+              </svg>
+            </a>
+            <a href="#" class="social-link">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7
+                         a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7
+                         a6 6 0 0 1 6-6z"></path>
+                <rect x="2" y="9" width="4" height="12"></rect>
+                <circle cx="4" cy="4" r="2"></circle>
+              </svg>
+            </a>
+            <a href="#" class="social-link">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+              </svg>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3 class="footer-heading">Plateforme</h3>
+          <ul class="footer-links">
+            <li><a href="#how-it-works">Comment ça marche</a></li>
+            <li><a href="#funding-list">Base de données des aides</a></li>
+            <li><a href="#">Accompagnement</a></li>
+            <li><a href="#">Tarification</a></li>
+            <li><a href="#">Témoignages</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="footer-heading">Entreprise</h3>
+          <ul class="footer-links">
+            <li><a href="#">À propos</a></li>
+            <li><a href="#">Notre équipe</a></li>
+            <li><a href="#">Blog</a></li>
+            <li><a href="#">Presse</a></li>
+            <li><a href="#">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3 class="footer-heading">Légal</h3>
+          <ul class="footer-links">
+            <li><a href="#">Conditions d'utilisation</a></li>
+            <li><a href="#">Politique de confidentialité</a></li>
+            <li><a href="#">Protection des données</a></li>
+            <li><a href="#">Accessibilité</a></li>
+            <li><a href="#">Cookies</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="copyright">
+        © 2025 AideFinder. Tous droits réservés.
+      </div>
+    </div>
+  </footer>
+
+  <!-- Modal pour afficher les détails de l'aide -->
+  <div class="detail-modal" id="detail-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-title">Titre de l'aide</h2>
+        <div class="modal-subtitle" id="modal-subtitle">Sous-titre</div>
+        <div class="modal-close" id="modal-close">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+               viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </div>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <!-- Contenu généré dynamiquement -->
+      </div>
+      <div class="modal-footer">
+        <button class="cta-button secondary" id="modal-close-btn">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Your Script - The Brains. Last, as it should be. -->
+  <script src="script.js"></script>
+</body>
+</html>
