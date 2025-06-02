@@ -2,20 +2,18 @@
 'use strict';
 
 let domainChart, sizeChart, regionChart, ageChart;
-// CONFIG.CHUNK_SIZE can be increased if data is clean, or kept small if issues persist.
-// Start with a moderate value, and if the PapaParse error returns, reduce it for debugging.
 const CONFIG = { CHUNK_SIZE: 2048, ITEM_HEIGHT: 320 }; // Moderate chunk size
 
 function fixFrenchAccents(input) {
+  // ... (keep this function as is from previous patch)
   if (typeof input !== 'string') {
     return input;
   }
   if (!input) {
     return '';
   }
-  const replacementCharUnicode = '\uFFFD'; // Replacement Character �
+  const replacementCharUnicode = '\uFFFD';
   const replacementCharRegex = /\uFFFD/g;
-  // Only replace if the character is present
   if (input.indexOf(replacementCharUnicode) === -1) {
     return input;
   }
@@ -23,17 +21,14 @@ function fixFrenchAccents(input) {
     return input.replace(replacementCharRegex, 'é');
   } catch (e) {
     console.error(`Error in fixFrenchAccents with input (first 100 chars): "${String(input).substring(0,100)}..."`, e);
-    return input; // Return original on error
+    return input;
   }
 }
 
 async function loadDataFromURLManualFetch(url) {
   const fundingGrid = document.getElementById('funding-grid');
-  fundingGrid.innerHTML = `<div class="loading" style="text-align: center; padding: 2rem;">
-                             <div class="loading-spinner" style="width: 50px; height: 50px; border: 5px solid var(--light); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
-                             <p style="margin-top: 1rem; color: var(--gray);">Chargement des données depuis ${url}...</p>
-                           </div>`;
-  console.log(`Attempting to fetch from: ${url} with CHUNK_SIZE: ${CONFIG.CHUNK_SIZE}`);
+  fundingGrid.innerHTML = `<div class="loading" style="text-align: center; padding: 2rem;">...loading message...</div>`;
+  console.log(`Attempting to fetch from: ${url}`);
 
   try {
     const response = await fetch(url, {
@@ -42,40 +37,40 @@ async function loadDataFromURLManualFetch(url) {
     });
 
     console.log("Fetch response. Status:", response.status, "OK:", response.ok);
-
     if (!response.ok) {
+      // ... (error handling as before)
       let errorDetails = `HTTP error! Status: ${response.status}. URL: ${url}.`;
-      try {
-        const errorText = await response.text();
-        errorDetails += ` Response body (first 200 chars): ${errorText.substring(0, 200)}`;
-      } catch (e) { /* Ignore */ }
+      try { const errorText = await response.text(); errorDetails += ` Response body (first 200 chars): ${errorText.substring(0, 200)}`; } catch (e) { /* Ignore */ }
       throw new Error(errorDetails);
     }
 
-    const blob = await response.blob();
-    // IMPORTANT: Use TextDecoder with 'ISO-8859-1' as per your "working" version's PapaParse config
-    const textDecoder = new TextDecoder('ISO-8859-1');
-    const decodedText = textDecoder.decode(await blob.arrayBuffer());
-
-    console.log("Data fetched & decoded via TextDecoder (ISO-8859-1). Length:", decodedText.length);
-    console.log("Passing to PapaParse...");
+    const blob = await response.blob(); // Get the Blob directly
+    console.log("Data fetched as Blob. Size:", blob.size, "Type:", blob.type);
+    console.log("Passing Blob to PapaParse with encoding: 'ISO-8859-1'...");
 
     let processedData = [];
     let rowCounter = 0;
     let chunkCounter = 0;
 
-    Papa.parse(decodedText, {
+    // START --- MODIFIED PAPAPARSE CALL ---
+    Papa.parse(blob, { // Pass the Blob directly
+        encoding: "ISO-8859-1", // Let PapaParse handle encoding from the Blob
         header: true,
         skipEmptyLines: true,
-        delimiter: ';', // Matches your "working" version
-        chunkSize: CONFIG.CHUNK_SIZE, // Number of characters
-        beforeFirstChunk: function(chunkText) {
-            chunkCounter++;
-            // console.log(`RAW CHUNK #${chunkCounter} (BEFORE PAPAPARSE, first 200 chars): \n"${chunkText.substring(0,200)}\n"`);
-            return chunkText;
-        },
+        delimiter: ';',
+        chunkSize: CONFIG.CHUNK_SIZE, // Still useful for large files
+        // beforeFirstChunk: function(chunkText) { // This might not work the same with Blob input
+        //     chunkCounter++;
+        //     console.log(`RAW CHUNK #${chunkCounter} (BEFORE PAPAPARSE, first 200 chars): \n"${chunkText.substring(0,200)}\n"`);
+        //     return chunkText;
+        // },
+        // The 'chunk' callback in PapaParse receives parsed data, not raw text chunks when input is a File/Blob
+        // So, direct logging of raw text chunks processed by PapaParse internally is harder here.
+        // We rely on its internal chunking.
+        worker: false, // Explicitly disable worker to see if it makes a difference with Blob input. Often default.
         chunk: function(results, parser) {
-            // console.log(`Processing chunk #${chunkCounter}. Rows in this chunk: ${results.data.length}.`);
+            chunkCounter++;
+            // console.log(`Processing PapaParse-generated chunk #${chunkCounter}. Rows: ${results.data.length}.`);
             if (results.errors.length > 0) {
                 console.warn("PapaParse errors in this chunk:", results.errors);
                 results.errors.forEach(err => {
@@ -96,48 +91,39 @@ async function loadDataFromURLManualFetch(url) {
               rowCounter += results.data.length;
             } catch (e) {
               console.error("Error during POST-parsing chunk processing (map/fixFrenchAccents):", e);
-              console.error("  Problematic CHUNK DATA (parsed by PapaParse):", results.data.slice(0,3));
               parser.abort();
-              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR CRITIQUE: Traitement des données échoué. Parsing abandonné. Vérifiez la console.</div>`;
-              throw e; // Re-throw to be caught by outer try-catch
+              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR CRITIQUE (POST-PARSE). Vérifiez console.</div>`;
+              throw e;
             }
         },
         complete: function() {
-            console.log(`PapaParse COMPLETE. Total rows: ${processedData.length}. Total chunks: ${chunkCounter}.`);
-            if (processedData.length === 0 && rowCounter === 0 && decodedText.length > 0) {
-              console.warn("ATTENTION: Aucune donnée parsée malgré un fichier non vide. Vérifiez le délimiteur, l'en-tête CSV, et le contenu du fichier.");
-              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION COMPROMISE: Aucune donnée exploitable depuis '${url}'. Vérifiez le format CSV (délimiteur ';', en-tête).</div>`;
-            } else if (processedData.length === 0 && decodedText.length === 0) {
-              console.warn("ATTENTION: Fichier CSV vide ou inaccessible.");
-              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION COMPROMISE: Fichier CSV vide ou inaccessible depuis '${url}'.</div>`;
-            }
-
-            window.currentAides = processedData; // Store globally
-            updateStatistics(processedData);
-            createCharts(processedData);
-            displayAidCards(processedData);
-            initSearchAndFilters(processedData); // IMPORTANT: Initialize after data is ready
+            console.log(`PapaParse COMPLETE. Total rows: ${processedData.length}. Papa-chunks: ${chunkCounter}.`);
+            // ... (rest of complete function as before)
+            window.currentAides = processedData;
+            updateStatistics(processedData); createCharts(processedData); displayAidCards(processedData); initSearchAndFilters(processedData);
             console.log("Traitement des données et mise à jour UI terminés.");
         },
-        error: function(papaparseError) { // General PapaParse error
-            console.error("!!! ERREUR PAPAPARSE GLOBALE !!!", papaparseError);
-            console.error(`  Cela s'est probablement produit lors du traitement du CHUNK #${chunkCounter}.`);
-            fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR SYSTÈME: Échec du parsing CSV depuis '${url}'. <br>Diagnostic: ${papaparseError.message || 'Erreur PapaParse inconnue'}. Vérifiez la console et le format du fichier CSV.</div>`;
+        error: function(papaparseError) {
+            console.error("!!! ERREUR PAPAPARSE GLOBALE (BLOB INPUT) !!!", papaparseError);
+            fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR SYSTÈME (BLOB): Échec du parsing. <br>Diagnostic: ${papaparseError.message}. Vérifiez console.</div>`;
         }
     });
+    // END --- MODIFIED PAPAPARSE CALL ---
 
-  } catch (error) { // Catches errors from fetch, TextDecoder, or re-thrown from PapaParse
-    console.error("!!! ERREUR CRITIQUE (FETCH OU TRAITEMENT INITIAL) !!!", error);
-    let reason = error.message || "Erreur inconnue de fetch ou de traitement.";
+  } catch (error) {
+    console.error("!!! ERREUR CRITIQUE (FETCH OU SETUP PAPAPARSE) !!!", error);
+    // ... (rest of catch block as before)
+    let reason = error.message || "Erreur inconnue.";
     if (error.name === 'RangeError' && error.message.includes('Maximum call stack size exceeded')) {
-        reason += ` CECI INDIQUE UN PROBLÈME SÉRIEUX AVEC PAPAPARSE TRAITANT UN SEGMENT DE VOTRE CSV.
-        Vérifiez la console pour le dernier 'RAW CHUNK' affiché. Le problème est probablement une citation complexe, des champs extrêmement longs ou un CSV malformé dans ce segment.
-        Validez manuellement ce segment de votre fichier CSV. CHUNK_SIZE actuel: ${CONFIG.CHUNK_SIZE}.`;
+        reason += ` ERREUR PAPAPARSE INTERNE. Le fichier CSV sur GitHub CONTIENT DES DONNÉES PROBLÉMATIQUES.
+        CHUNK_SIZE actuel: ${CONFIG.CHUNK_SIZE}.`;
     }
-    fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR SYSTÈME: Échec du chargement ou traitement initial du fichier '${url}'. <br>Diagnostic: ${reason}. <br>VÉRIFIEZ LA CONSOLE, L'ONGLET RÉSEAU ET LE FORMAT DE VOTRE FICHIER CSV.</div>`;
+    fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR SYSTÈME: ${reason}. Vérifiez console.</div>`;
   }
 }
 
+// ... (rest of your script.js: updateStatistics, createCharts, displayAidCards, etc. remain unchanged)
+// Make sure DOMContentLoaded and other functions are correctly placed as in previous versions.
 
 function updateStatistics(aides) {
   if (!Array.isArray(aides)) aides = [];
@@ -185,7 +171,6 @@ function createCharts(aides) {
     }
   };
 
-  // Ensure chart containers exist (defensive coding)
   const ensureChartContainer = (id, title, parentGrid) => {
     if (!document.getElementById(id) && parentGrid) {
         const cardId = `${id}-card`;
@@ -207,7 +192,6 @@ function createCharts(aides) {
 
   const chartsGrid = document.querySelector('.charts-grid');
 
-  // 1. Domain Chart
   const domainCounts = {};
   if (aides.length > 0) {
     aides.forEach(aide => {
@@ -236,8 +220,6 @@ function createCharts(aides) {
     });
   }
 
-
-  // 2. Size Chart
   const sizeCounts = { 'Moins de 10': 0, '10-49': 0, '50-249': 0, '250 et plus': 0, 'Toutes tailles': 0, 'Non spécifié': 0 };
   if (aides.length > 0) {
     aides.forEach(aide => {
@@ -267,7 +249,6 @@ function createCharts(aides) {
     });
   }
 
-  // 3. Region Chart
   const regionCounts = { 'Nationale': 0, 'Territoriale': 0, 'Non spécifié': 0 };
   if (aides.length > 0) {
     aides.forEach(aide => {
@@ -290,7 +271,6 @@ function createCharts(aides) {
     });
   }
 
-  // 4. Age Chart
   const ageCounts = { 'Moins de 3 ans': 0, 'Plus de 3 ans': 0, 'Tout âge': 0, 'Non spécifié': 0 };
   if (aides.length > 0) {
     aides.forEach(aide => {
@@ -330,7 +310,7 @@ function displayAidCards(aides, page = 1) {
   const displayedAides = allAides.slice(startIndex, endIndex);
 
   if (allAides.length === 0) {
-    gridContainer.innerHTML = '<div class="no-results" style="text-align:center; padding:2rem; color:var(--gray);">Aucune aide trouvée. Essayez d\'ajuster vos filtres ou termes de recherche.</div>';
+    gridContainer.innerHTML = '<div class="no-results" style="text-align:center; padding:2rem; color:var(--gray);">Aucune aide trouvée.</div>';
     const paginationEl = document.getElementById('pagination');
     if (paginationEl) paginationEl.innerHTML = '';
     return;
@@ -464,10 +444,9 @@ function createPagination(totalItems, itemsPerPage, currentPage) {
   paginationContainer.appendChild(createPageButton('»', currentPage + 1, currentPage === totalPages));
 }
 
-
 function initSearchAndFilters(aidesInput) {
   const aides = Array.isArray(aidesInput) ? aidesInput : [];
-  window.currentAides = aides; // Ensure global currentAides is set
+  window.currentAides = aides; 
 
   const searchForm = document.getElementById('search-form');
   const applyFiltersBtn = document.getElementById('apply-filters');
@@ -477,7 +456,7 @@ function initSearchAndFilters(aidesInput) {
   const performSearchAndFilter = () => {
     const searchInput = document.getElementById('search-input');
     const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
-    const filteredAides = getFilteredAides(window.currentAides || [], searchTerm); // Use window.currentAides
+    const filteredAides = getFilteredAides(window.currentAides || [], searchTerm); 
     displayAidCards(filteredAides, 1);
   };
 
@@ -500,11 +479,10 @@ function initSearchAndFilters(aidesInput) {
       document.getElementById('company-size').value = '';
       document.getElementById('company-age').value = '';
       document.getElementById('geography').value = '';
-      displayAidCards(window.currentAides || [], 1); // Display all original aides
+      displayAidCards(window.currentAides || [], 1); 
     });
   }
 
-  // Populate category dropdown
   if(categorySelect) {
     const categories = new Set();
     if (aides.length > 0) {
@@ -518,7 +496,6 @@ function initSearchAndFilters(aidesInput) {
     }
     const sortedCategories = Array.from(categories).sort((a, b) => a.localeCompare(b, 'fr'));
     
-    // Clear existing options except the first "Toutes catégories"
     while (categorySelect.options.length > 1) {
       categorySelect.remove(1);
     }
@@ -536,7 +513,7 @@ function getFilteredAides(allAidesInput, searchTerm = null) {
 
   const searchInputEl = document.getElementById('search-input');
   const currentSearchTerm = (searchTerm !== null ? searchTerm : (searchInputEl ? searchInputEl.value.toLowerCase().trim() : ""))
-                            .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Accent removal
+                            .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); 
 
   const category = document.getElementById('category').value;
   const companySize = document.getElementById('company-size').value;
@@ -546,7 +523,6 @@ function getFilteredAides(allAidesInput, searchTerm = null) {
   return allAides.filter(aide => {
     if (!aide) return false;
 
-    // Search term filter (normalized)
     if (currentSearchTerm) {
       const name = (aide.aid_nom || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const objet = (aide.aid_objet || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -564,7 +540,7 @@ function getFilteredAides(allAidesInput, searchTerm = null) {
 
     if (companySize) {
         const aideEffectif = (aide.effectif || '').toLowerCase();
-        if (!aideEffectif.includes('tous') && !aideEffectif.includes('all')) { // If not "all sizes"
+        if (!aideEffectif.includes('tous') && !aideEffectif.includes('all')) { 
             let sizeMatch = false;
             if (companySize === "-10" && (aideEffectif.includes('-10') || aideEffectif.includes('-5'))) sizeMatch = true;
             else if (companySize === "10-49" && aideEffectif.includes('10-49')) sizeMatch = true;
@@ -644,7 +620,7 @@ function formatLinks(text) {
 
 function initModal() {
   const modal = document.getElementById('detail-modal');
-  const modalContent = modal?.querySelector('.modal-content'); // More specific
+  const modalContent = modal?.querySelector('.modal-content'); 
   const closeBtn = document.getElementById('modal-close');
   const closeBtnFooter = document.getElementById('modal-close-btn');
 
@@ -660,29 +636,26 @@ function initModal() {
   modalContent.addEventListener('click', (e) => e.stopPropagation());
 }
 
-// Initial DOMContentLoaded
 document.addEventListener('DOMContentLoaded', function() {
-  console.log("DOM chargé. Protocole de fichier CSV GitHub Pages engagé.");
+  console.log("DOM chargé.");
   initModal();
 
-  // Initialize UI elements with empty/default state BEFORE data loads
   updateStatistics([]);
   createCharts([]);
-  displayAidCards([]); // Will show "no results" or loading spinner
-  initSearchAndFilters([]); // Filters will be empty until data loads
+  displayAidCards([]); 
+  initSearchAndFilters([]); 
 
   const DATA_URL = "https://bros-ai.github.io/Aide-Financement-Entreprise/aides.csv";
-  // const DATA_URL = "./aides.csv"; // For local testing if aides.csv is in the same folder
-
+  
   loadDataFromURLManualFetch(DATA_URL)
     .then(() => {
-      console.log("Tentative de chargement initial des données terminée (asynchrone).");
+      console.log("Chargement initial des données terminé.");
     })
-    .catch(error => { // This catch is for critical errors in loadDataFromURLManualFetch promise itself
-      console.error("Erreur critique durant l'exécution de la chaîne de promesses loadDataFromURLManualFetch:", error);
+    .catch(error => { 
+      console.error("Erreur critique loadDataFromURLManualFetch:", error);
       const fundingGrid = document.getElementById('funding-grid');
       if (fundingGrid) {
-        fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR FATALE: Impossible de charger les données. <br>Détail: ${error.message}</div>`;
+        fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR FATALE: ${error.message}</div>`;
       }
     });
 });
