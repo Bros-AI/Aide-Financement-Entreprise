@@ -3,24 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- START PATCH: ADD CONTENT SECURITY POLICY META TAG -->
-  <meta http-equiv="Content-Security-Policy" 
-        content="default-src 'self'; 
-                 script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; 
-                 style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; 
-                 font-src 'self' https://fonts.gstatic.com data:; 
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com;
+                 style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;
+                 font-src 'self' https://fonts.gstatic.com data:;
                  img-src 'self' data:;
                  connect-src 'self' https://bros-ai.github.io;
                  object-src 'none';
                  base-uri 'self';
                  form-action 'self';
                  frame-ancestors 'none';">
-  <!-- END PATCH -->
   <title>AideFinder - Trouvez des financements pour votre projet</title>
-  <!-- External Libraries - These stay. They're not YOUR code. -->
+  <!-- External Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-  <!-- Your Styles - Where they belong. -->
+  <!-- Your Styles -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -79,7 +77,7 @@
           <button type="submit" class="search-submit">Rechercher</button>
         </form>
       </div>
-      <!-- File upload widget? GONE. We're not dealing with user error. -->
+      <!-- File upload widget is intentionally GONE from this version -->
     </div>
   </section>
 
@@ -122,7 +120,6 @@
             <canvas id="size-chart"></canvas>
           </div>
         </div>
-        <!-- Chart containers for region and age will be dynamically managed by JS if needed, or pre-declare them -->
         <div class="chart-card" id="region-chart-card">
             <h3 class="chart-title">Répartition Nationale/Territoriale</h3>
             <div class="chart-container">
@@ -188,7 +185,6 @@
     <div class="container">
       <h2 class="funding-list-title">Aides disponibles</h2>
       <div class="funding-grid" id="funding-grid">
-        <!-- JS will populate this. Or show a spinner. Or an error. The truth hurts. -->
         <div class="loading" style="text-align: center; padding: 2rem;">
           <div class="loading-spinner" style="width: 50px; height: 50px; border: 5px solid var(--light); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
           <p style="margin-top: 1rem; color: var(--gray);">Chargement...</p>
