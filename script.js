@@ -3,6 +3,7 @@
 // Global chart instances
 let domainChart, sizeChart, regionChart, ageChart;
 const CONFIG = { CHUNK_SIZE: 1000, ITEM_HEIGHT: 320 }; // CHUNK_SIZE can be reduced for debugging stack overflows
+const MAX_STRING_LENGTH_FOR_ACCENT_FIX = 1 * 1024 * 1024; // 1MB limit for string processing by fixFrenchAccents
 
 function fixFrenchAccents(input) {
   if (typeof input !== 'string') {
@@ -12,6 +13,12 @@ function fixFrenchAccents(input) {
   if (!input) { // Handles empty string
     return '';
   }
+
+  if (input.length > MAX_STRING_LENGTH_FOR_ACCENT_FIX) {
+    console.warn(`fixFrenchAccents: Input string exceeds ${MAX_STRING_LENGTH_FOR_ACCENT_FIX / (1024*1024)}MB (length: ${input.length}). Skipping accent fix for this string to prevent potential stack overflow. Content starts with: "${String(input).substring(0,100)}..."`);
+    return input; // Return original, very long string without attempting replacement
+  }
+
   try {
     // This regex is simple, stack overflow here is highly unusual for this regex itself.
     // It usually points to an extremely large input string or an external issue.
