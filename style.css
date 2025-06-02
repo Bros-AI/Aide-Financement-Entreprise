@@ -438,6 +438,13 @@ nav { display: flex; justify-content: space-between; align-items: center; }
   border-color: var(--primary);
 }
 .pagination-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.pagination-ellipsis { /* Style for ellipsis in pagination */
+    padding: 0 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray);
+}
 /* How It Works Section */
 .how-it-works {
   padding: 8rem 0;
@@ -459,6 +466,17 @@ nav { display: flex; justify-content: space-between; align-items: center; }
   position: relative;
   z-index: 1;
 }
+.features-title { /* Shared by how-it-works and faq */
+    font-size: 2.5rem; /* Adjusted for consistency */
+    font-weight: 700;
+    margin-bottom: 1rem;
+}
+.features-subtitle { /* Shared by how-it-works and faq */
+    font-size: 1.125rem;
+    color: var(--gray); /* Ensure this color is appropriate for dark bg too if used */
+    max-width: 600px;
+    margin: 0 auto 1.5rem; /* Add bottom margin */
+}
 .steps-container { display: flex; gap: 2rem; position: relative; z-index: 1; }
 .step-card {
   flex: 1;
@@ -477,6 +495,8 @@ nav { display: flex; justify-content: space-between; align-items: center; }
   right: 0;
   height: 4px;
   background: var(--gradient-main);
+  border-top-left-radius: 12px; /* Match card radius */
+  border-top-right-radius: 12px; /* Match card radius */
 }
 .step-number {
   font-size: 4rem;
@@ -492,10 +512,12 @@ nav { display: flex; justify-content: space-between; align-items: center; }
   margin-bottom: 1rem;
   color: white;
 }
-.step-description { color: var(--gray); }
+.step-description { color: var(--gray); } /* This gray might be too dark on --dark-alt. Consider a lighter gray for dark backgrounds. */
+
 /* FAQ Section */
 .faq-section { padding: 8rem 0; background-color: var(--light); }
 .faq-header { text-align: center; margin-bottom: 5rem; }
+/* .features-title and .features-subtitle are used here too */
 .faq-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -575,6 +597,7 @@ footer {
   margin-bottom: 1rem;
   display: inline-block;
   color: white;
+  text-decoration: none; /* Ensure logo is not underlined by default */
 }
 .footer-logo span { color: var(--primary-light); }
 .footer-description {
@@ -593,6 +616,7 @@ footer {
   justify-content: center;
   color: white;
   transition: all 0.3s;
+  text-decoration: none; /* Ensure social links are not underlined */
 }
 .social-link:hover {
   background-color: var(--primary);
@@ -620,7 +644,7 @@ footer {
 }
 /* Modal Detail */
 .detail-modal {
-  display: none;
+  display: none; /* Hidden by default */
   position: fixed;
   top: 0;
   left: 0;
@@ -629,27 +653,38 @@ footer {
   background-color: rgba(0,0,0,0.5);
   z-index: 1000;
   backdrop-filter: blur(5px);
-  overflow-y: auto;
+  overflow-y: auto; /* Allow scrolling for long modals */
+  padding: 20px; /* Add some padding for smaller screens */
 }
-.detail-modal.open { display: block; }
+.detail-modal.open { display: flex; align-items: center; justify-content: center; } /* Use flex to center */
+
 .modal-content {
   background-color: white;
   max-width: 800px;
-  margin: 50px auto;
+  width: 90%; /* Responsive width */
+  margin: auto; /* Centering for older browsers / if flex fails */
   border-radius: 12px;
-  overflow: hidden;
+  overflow: hidden; /* Content inside modal will be clipped by border-radius */
   box-shadow: var(--shadow-lg);
   animation: fadeIn 0.3s ease-out;
+  display: flex; /* Use flex for modal structure */
+  flex-direction: column;
+  max-height: 90vh; /* Prevent modal from being too tall */
 }
 .modal-header {
   padding: 1.5rem;
   background: linear-gradient(135deg, var(--primary-light), var(--primary));
   color: white;
   position: relative;
+  flex-shrink: 0; /* Header should not shrink */
 }
 .modal-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
 .modal-subtitle { font-size: 1rem; opacity: 0.9; }
-.modal-body { padding: 2rem; }
+.modal-body { 
+  padding: 2rem; 
+  overflow-y: auto; /* Body scrolls if content is too long */
+  flex-grow: 1; /* Body takes available space */
+}
 .modal-section { margin-bottom: 1.5rem; }
 .modal-section-title {
   font-size: 1.25rem;
@@ -658,12 +693,14 @@ footer {
   color: var(--dark);
 }
 .modal-text { font-size: 0.95rem; line-height: 1.5; color: var(--dark-alt); }
+.modal-text p { margin-bottom: 0.5em; } /* Spacing for paragraphs in modal */
 .modal-footer {
   padding: 1.5rem;
   background-color: #f8fafc;
   border-top: 1px solid #e2e8f0;
   display: flex;
   justify-content: flex-end;
+  flex-shrink: 0; /* Footer should not shrink */
 }
 .modal-close {
   position: absolute;
@@ -679,33 +716,69 @@ footer {
   color: white;
   cursor: pointer;
   transition: all 0.2s;
+  border: none; /* Ensure it's button-like */
 }
 .modal-close:hover { background-color: rgba(255,255,255,0.5); transform: rotate(90deg); }
 
-/* File Upload related styles - REMOVED because feature is removed.
-   If you had specific styles for .file-upload, .file-upload-label etc.,
-   they are no longer needed. */
+/* START PATCH: REMOVE FILE UPLOAD STYLES */
+/* 
+.file-upload { ... }
+.file-upload-label { ... }
+.file-upload-label:hover { ... }
+.file-upload-input { ... }
+.file-upload-icon { ... }
+.file-upload-text { ... }
+.file-upload-button { ... } 
+*/
+/* END PATCH */
 
 /* Responsive Design */
 @media (max-width: 1200px) {
   .steps-container { flex-direction: column; }
-  .footer-content { grid-template-columns: 1fr 1fr; }
+  .footer-content { grid-template-columns: 1fr 1fr; gap: 2rem; }
   .faq-grid { grid-template-columns: 1fr; }
-  .charts-grid { grid-template-columns: 1fr; } /* Already set to 1fr for auto-fit */
+  .charts-grid { grid-template-columns: 1fr; } 
 }
 @media (max-width: 991px) {
   .hero-title { font-size: 3rem; }
   .search-form { flex-direction: column; }
   .search-input { padding: 1.25rem 1.25rem 1.25rem 3.25rem; }
-  .search-submit { width: 100%; padding: 1rem; }
+  .search-submit { width: 100%; padding: 1rem; border-radius: 0 0 12px 12px; /* Adjust for stacked layout */ }
   .cta-buttons { flex-direction: column; align-items: center; }
+  .footer-content { grid-template-columns: 1fr; } /* Change earlier for consistency */
 }
 @media (max-width: 767px) {
   .hero-title { font-size: 2.5rem; }
   .hero-subtitle { font-size: 1.125rem; }
-  .nav-links { display: none; } /* Or implement a burger menu, if you're feeling fancy */
+  nav { flex-wrap: wrap; } /* Allow nav items to wrap if needed */
+  .nav-links { 
+    /* Basic mobile menu - hide by default, could be toggled with JS */
+    display: none; 
+    flex-direction: column;
+    width: 100%;
+    background-color: rgba(248, 250, 252, 0.95);
+    position: absolute;
+    top: 100%; /* Position below header */
+    left: 0;
+    padding: 1rem 0;
+    box-shadow: var(--shadow-md);
+  }
+  .nav-links a { padding: 0.75rem 20px; width: 100%; text-align: center;}
+  .nav-links a:hover::after { width: 50%; left: 25%; }
+  /* Add a burger menu icon/button here if implementing toggle */
+  
   .footer-content { grid-template-columns: 1fr; }
   .cta-title { font-size: 2.5rem; }
-  .charts-grid { grid-template-columns: 1fr; } /* Ensure single column on small screens */
-  .charts-grid .chart-card { min-width: unset; } /* Override minmax for smaller screens */
+  .charts-grid { grid-template-columns: 1fr; } 
+  .charts-grid .chart-card { min-width: unset; } 
+  .stat-item { min-width: 150px; flex-basis: 45%; } /* Allow stats to wrap better */
+  .filter-container { flex-direction: column; } /* Stack filters on small screens */
+  .filter-group { min-width: unset; width: 100%; }
+}
+@media (max-width: 480px) {
+    .hero-title { font-size: 2rem; }
+    .hero-subtitle { font-size: 1rem; }
+    .stat-value { font-size: 2.5rem; }
+    .cta-title { font-size: 2rem; }
+    .modal-content { width: 95%; }
 }
