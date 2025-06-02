@@ -1,11 +1,10 @@
 // script.js
-'use strict'; // Enforce stricter parsing and error handling
+'use strict';
 
-// Global chart instances
 let domainChart, sizeChart, regionChart, ageChart;
-// START PATCH: Drastically reduce CHUNK_SIZE for debugging this specific PapaParse error
-const CONFIG = { CHUNK_SIZE: 512, ITEM_HEIGHT: 320 }; // Reduced CHUNK_SIZE (PapaParse uses this as character count)
-// END PATCH
+// CONFIG.CHUNK_SIZE can be increased if data is clean, or kept small if issues persist.
+// Start with a moderate value, and if the PapaParse error returns, reduce it for debugging.
+const CONFIG = { CHUNK_SIZE: 2048, ITEM_HEIGHT: 320 }; // Moderate chunk size
 
 function fixFrenchAccents(input) {
   if (typeof input !== 'string') {
@@ -14,23 +13,27 @@ function fixFrenchAccents(input) {
   if (!input) {
     return '';
   }
-  const replacementCharUnicode = '\uFFFD';
+  const replacementCharUnicode = '\uFFFD'; // Replacement Character �
   const replacementCharRegex = /\uFFFD/g;
+  // Only replace if the character is present
   if (input.indexOf(replacementCharUnicode) === -1) {
     return input;
   }
   try {
     return input.replace(replacementCharRegex, 'é');
   } catch (e) {
-    console.error(`CRITICAL Error in fixFrenchAccents. Input type: ${typeof input}, length: ${input?.length}. First 100 chars: "${String(input).substring(0,100)}..."`, e);
-    return input;
+    console.error(`Error in fixFrenchAccents with input (first 100 chars): "${String(input).substring(0,100)}..."`, e);
+    return input; // Return original on error
   }
 }
 
 async function loadDataFromURLManualFetch(url) {
   const fundingGrid = document.getElementById('funding-grid');
-  fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem;">INTENSE DATA ASSAULT PROTOCOL ENGAGED. URL: ${url}. CHUNK_SIZE: ${CONFIG.CHUNK_SIZE}</div>`;
-  console.log(`Attempting to fetch from GitHub Pages: ${url}`);
+  fundingGrid.innerHTML = `<div class="loading" style="text-align: center; padding: 2rem;">
+                             <div class="loading-spinner" style="width: 50px; height: 50px; border: 5px solid var(--light); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+                             <p style="margin-top: 1rem; color: var(--gray);">Chargement des données depuis ${url}...</p>
+                           </div>`;
+  console.log(`Attempting to fetch from: ${url} with CHUNK_SIZE: ${CONFIG.CHUNK_SIZE}`);
 
   try {
     const response = await fetch(url, {
@@ -38,54 +41,45 @@ async function loadDataFromURLManualFetch(url) {
       mode: 'cors',
     });
 
-    console.log("Fetch response received. Status:", response.status, "OK:", response.ok);
+    console.log("Fetch response. Status:", response.status, "OK:", response.ok);
 
     if (!response.ok) {
       let errorDetails = `HTTP error! Status: ${response.status}. URL: ${url}.`;
       try {
         const errorText = await response.text();
         errorDetails += ` Response body (first 200 chars): ${errorText.substring(0, 200)}`;
-      } catch (e) {
-        errorDetails += ` Could not read error response body.`;
-      }
-      errorDetails += `\nEnsure the file path is correct and accessible. Check Network tab.`;
+      } catch (e) { /* Ignore */ }
       throw new Error(errorDetails);
     }
 
     const blob = await response.blob();
-    const textDecoder = new TextDecoder('ISO-8859-1'); // Keep this if it was part of a previously "less broken" state
+    // IMPORTANT: Use TextDecoder with 'ISO-8859-1' as per your "working" version's PapaParse config
+    const textDecoder = new TextDecoder('ISO-8859-1');
     const decodedText = textDecoder.decode(await blob.arrayBuffer());
 
-    // START PATCH: Log raw decoded text before PapaParse gets it
-    console.log(`DECODED TEXT (first 500 chars): \n"${decodedText.substring(0, 500)}\n"`);
-    console.log(`DECODED TEXT (last 500 chars): \n"${decodedText.substring(decodedText.length - 500)}\n"`);
-    console.log(`Total decoded text length: ${decodedText.length}`);
-    // END PATCH
-
-    console.log("Data fetched and decoded. Parsing with PapaParse...");
+    console.log("Data fetched & decoded via TextDecoder (ISO-8859-1). Length:", decodedText.length);
+    console.log("Passing to PapaParse...");
 
     let processedData = [];
     let rowCounter = 0;
-    let chunkCounter = 0; // For logging
+    let chunkCounter = 0;
 
     Papa.parse(decodedText, {
         header: true,
         skipEmptyLines: true,
-        delimiter: ';',
-        chunkSize: CONFIG.CHUNK_SIZE, // Using the reduced CHUNK_SIZE
+        delimiter: ';', // Matches your "working" version
+        chunkSize: CONFIG.CHUNK_SIZE, // Number of characters
         beforeFirstChunk: function(chunkText) {
             chunkCounter++;
-            // START PATCH: Log the raw text of the chunk PapaParse is about to process
-            console.log(`RAW CHUNK #${chunkCounter} (BEFORE PAPAPARSE PROCESSING, first 200 chars): \n"${chunkText.substring(0,200)}\n"`);
-            // END PATCH
-            return chunkText; // Must return the chunk
+            // console.log(`RAW CHUNK #${chunkCounter} (BEFORE PAPAPARSE, first 200 chars): \n"${chunkText.substring(0,200)}\n"`);
+            return chunkText;
         },
         chunk: function(results, parser) {
-            console.log(`Processing chunk #${chunkCounter}. Rows in this chunk: ${results.data.length}. Total rows processed before this chunk: ${rowCounter}`);
+            // console.log(`Processing chunk #${chunkCounter}. Rows in this chunk: ${results.data.length}.`);
             if (results.errors.length > 0) {
                 console.warn("PapaParse errors in this chunk:", results.errors);
                 results.errors.forEach(err => {
-                  console.warn(`PapaParse error detail: Type: ${err.type}, Code: ${err.code}, Message: ${err.message}, Row: ${err.row}`);
+                  console.warn(`  Detail: Type: ${err.type}, Code: ${err.code}, Message: ${err.message}, Row: ${err.row}`);
                 });
             }
             try {
@@ -101,46 +95,46 @@ async function loadDataFromURLManualFetch(url) {
               processedData = processedData.concat(cleanedChunk);
               rowCounter += results.data.length;
             } catch (e) {
-              console.error("Error during POST-parsing chunk processing (map or fixFrenchAccents):", e);
-              console.error("Problematic CHUNK DATA (parsed by PapaParse but failed in your .map):", results.data.slice(0,3));
+              console.error("Error during POST-parsing chunk processing (map/fixFrenchAccents):", e);
+              console.error("  Problematic CHUNK DATA (parsed by PapaParse):", results.data.slice(0,3));
               parser.abort();
-              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">CRITICAL ERROR during post-parsing data processing. Parsing aborted. Check console.</div>`;
-              throw e;
+              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR CRITIQUE: Traitement des données échoué. Parsing abandonné. Vérifiez la console.</div>`;
+              throw e; // Re-throw to be caught by outer try-catch
             }
         },
         complete: function() {
-            console.log(`PapaParse COMPLETE. Total rows acquired: ${processedData.length}. Total chunks processed: ${chunkCounter}`);
-            if (processedData.length === 0 && rowCounter === 0) {
-              console.warn("WARNING: No data parsed. CHECK THE CSV CONTENT, PATH, AND CONSOLE LOGS FOR RAW CHUNKS.");
-              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION FAILURE: Aucune donnée. Vérifiez le fichier et la console.</div>`;
-              window.currentAides = [];
-              updateStatistics([]); createCharts([]); displayAidCards([]); initSearchAndFilters([]);
-              return;
+            console.log(`PapaParse COMPLETE. Total rows: ${processedData.length}. Total chunks: ${chunkCounter}.`);
+            if (processedData.length === 0 && rowCounter === 0 && decodedText.length > 0) {
+              console.warn("ATTENTION: Aucune donnée parsée malgré un fichier non vide. Vérifiez le délimiteur, l'en-tête CSV, et le contenu du fichier.");
+              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION COMPROMISE: Aucune donnée exploitable depuis '${url}'. Vérifiez le format CSV (délimiteur ';', en-tête).</div>`;
+            } else if (processedData.length === 0 && decodedText.length === 0) {
+              console.warn("ATTENTION: Fichier CSV vide ou inaccessible.");
+              fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--gray);">MISSION COMPROMISE: Fichier CSV vide ou inaccessible depuis '${url}'.</div>`;
             }
-            window.currentAides = processedData;
-            updateStatistics(processedData); createCharts(processedData);
-            displayAidCards(processedData); initSearchAndFilters(processedData);
-            console.log("Data processing complete, UI updated.");
+
+            window.currentAides = processedData; // Store globally
+            updateStatistics(processedData);
+            createCharts(processedData);
+            displayAidCards(processedData);
+            initSearchAndFilters(processedData); // IMPORTANT: Initialize after data is ready
+            console.log("Traitement des données et mise à jour UI terminés.");
         },
-        error: function(papaparseError, file) {
-            console.error("!!!PAPA PARSE OVERALL FAILURE!!! DETAILS:", papaparseError);
-            console.error(`This likely happened while processing CHUNK #${chunkCounter}. Inspect the logged RAW CHUNK content above this error.`);
-            fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">SYSTEM MELTDOWN: PapaParse FAILED. <br>Diagnosis: ${papaparseError.message || 'Unknown PapaParse error'}. Check console for raw chunk data.</div>`;
+        error: function(papaparseError) { // General PapaParse error
+            console.error("!!! ERREUR PAPAPARSE GLOBALE !!!", papaparseError);
+            console.error(`  Cela s'est probablement produit lors du traitement du CHUNK #${chunkCounter}.`);
+            fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR SYSTÈME: Échec du parsing CSV depuis '${url}'. <br>Diagnostic: ${papaparseError.message || 'Erreur PapaParse inconnue'}. Vérifiez la console et le format du fichier CSV.</div>`;
         }
     });
 
-  } catch (error) { // This catches errors from fetch, TextDecoder, or re-thrown errors from PapaParse callbacks
-    console.error("!!!GITHUB PAGES FETCH OR INITIAL PROCESSING CRITICAL FAILURE!!! DETAILS:", error);
-    let reason = error.message || "Unknown fetch or initial processing error.";
+  } catch (error) { // Catches errors from fetch, TextDecoder, or re-thrown from PapaParse
+    console.error("!!! ERREUR CRITIQUE (FETCH OU TRAITEMENT INITIAL) !!!", error);
+    let reason = error.message || "Erreur inconnue de fetch ou de traitement.";
     if (error.name === 'RangeError' && error.message.includes('Maximum call stack size exceeded')) {
-        // This is the error we're trying to debug.
-        reason += ` This indicates a severe issue within PapaParse handling a specific segment of your CSV data.
-        Inspect the logged RAW CHUNK content in the console just before this error.
-        The problem is likely complex quoting, extremely long fields, or malformed CSV in that chunk.
-        Consider manually validating that segment of your CSV file.
-        Current CHUNK_SIZE for debugging: ${CONFIG.CHUNK_SIZE}. If this is still large, try reducing it further in script.js.`;
+        reason += ` CECI INDIQUE UN PROBLÈME SÉRIEUX AVEC PAPAPARSE TRAITANT UN SEGMENT DE VOTRE CSV.
+        Vérifiez la console pour le dernier 'RAW CHUNK' affiché. Le problème est probablement une citation complexe, des champs extrêmement longs ou un CSV malformé dans ce segment.
+        Validez manuellement ce segment de votre fichier CSV. CHUNK_SIZE actuel: ${CONFIG.CHUNK_SIZE}.`;
     }
-    fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">SYSTEM ERROR: Échec chargement/traitement initial. <br>Diagnosis: ${reason}. <br>CHECK CONSOLE AND NETWORK TAB.</div>`;
+    fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR SYSTÈME: Échec du chargement ou traitement initial du fichier '${url}'. <br>Diagnostic: ${reason}. <br>VÉRIFIEZ LA CONSOLE, L'ONGLET RÉSEAU ET LE FORMAT DE VOTRE FICHIER CSV.</div>`;
   }
 }
 
@@ -191,6 +185,28 @@ function createCharts(aides) {
     }
   };
 
+  // Ensure chart containers exist (defensive coding)
+  const ensureChartContainer = (id, title, parentGrid) => {
+    if (!document.getElementById(id) && parentGrid) {
+        const cardId = `${id}-card`;
+        if(!document.getElementById(cardId)){
+            const chartCard = document.createElement('div');
+            chartCard.className = 'chart-card';
+            chartCard.id = cardId;
+            chartCard.innerHTML = `
+            <h3 class="chart-title">${title}</h3>
+            <div class="chart-container">
+                <canvas id="${id}"></canvas>
+            </div>
+            `;
+            parentGrid.appendChild(chartCard);
+        }
+    }
+    return document.getElementById(id)?.getContext('2d');
+  };
+
+  const chartsGrid = document.querySelector('.charts-grid');
+
   // 1. Domain Chart
   const domainCounts = {};
   if (aides.length > 0) {
@@ -203,31 +219,23 @@ function createCharts(aides) {
         }
     });
   }
+  const sortedDomains = Object.entries(domainCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const domainCtx = ensureChartContainer('domain-chart', 'Répartition par domaine', chartsGrid);
+  if (domainCtx) {
+    if (domainChart) { domainChart.destroy(); }
+    domainChart = new Chart(domainCtx, {
+        type: 'pie',
+        data: {
+        labels: sortedDomains.length > 0 ? sortedDomains.map(d => d[0]) : ['Aucune donnée'],
+        datasets: [{
+            data: sortedDomains.length > 0 ? sortedDomains.map(d => d[1]) : [1],
+            backgroundColor: sortedDomains.length > 0 ? ['#1e40af', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#10b981', '#34d399', '#1e3a8a'] : ['#cccccc']
+        }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', display: sortedDomains.length > 0 }, tooltip: { ...pieTooltipCallback, enabled: sortedDomains.length > 0 } } }
+    });
+  }
 
-  const sortedDomains = Object.entries(domainCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-
-  const domainCtx = document.getElementById('domain-chart').getContext('2d');
-  if (domainChart) { domainChart.destroy(); }
-  domainChart = new Chart(domainCtx, {
-    type: 'pie',
-    data: {
-      labels: sortedDomains.length > 0 ? sortedDomains.map(d => d[0]) : ['Aucune donnée'],
-      datasets: [{
-        data: sortedDomains.length > 0 ? sortedDomains.map(d => d[1]) : [1],
-        backgroundColor: sortedDomains.length > 0 ? ['#1e40af', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#10b981', '#34d399', '#1e3a8a'] : ['#cccccc']
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', display: sortedDomains.length > 0 },
-        tooltip: { ...pieTooltipCallback, enabled: sortedDomains.length > 0 }
-      }
-    }
-  });
 
   // 2. Size Chart
   const sizeCounts = { 'Moins de 10': 0, '10-49': 0, '50-249': 0, '250 et plus': 0, 'Toutes tailles': 0, 'Non spécifié': 0 };
@@ -246,26 +254,18 @@ function createCharts(aides) {
         if (!found) sizeCounts['Non spécifié']++;
     });
   }
-
-  const sizeCtx = document.getElementById('size-chart').getContext('2d');
-  if (sizeChart) { sizeChart.destroy(); }
-  sizeChart = new Chart(sizeCtx, {
-    type: 'bar',
-    data: {
-      labels: Object.keys(sizeCounts),
-      datasets: [{
-        label: "Nombre d'aides",
-        data: Object.values(sizeCounts),
-        backgroundColor: '#1e40af'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, suggestedMax: aides.length > 0 ? undefined : 10 } }
-    }
-  });
+  const sizeCtx = ensureChartContainer('size-chart', "Répartition par taille d'entreprise", chartsGrid);
+  if (sizeCtx) {
+    if (sizeChart) { sizeChart.destroy(); }
+    sizeChart = new Chart(sizeCtx, {
+        type: 'bar',
+        data: {
+        labels: Object.keys(sizeCounts),
+        datasets: [{ label: "Nombre d'aides", data: Object.values(sizeCounts), backgroundColor: '#1e40af' }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, suggestedMax: aides.length > 0 ? undefined : 10 } } }
+    });
+  }
 
   // 3. Region Chart
   const regionCounts = { 'Nationale': 0, 'Territoriale': 0, 'Non spécifié': 0 };
@@ -277,27 +277,18 @@ function createCharts(aides) {
         else regionCounts['Non spécifié']++;
     });
   }
-
-  const regionCtx = document.getElementById('region-chart').getContext('2d');
-  if (regionChart) { regionChart.destroy(); }
-  regionChart = new Chart(regionCtx, {
-    type: 'doughnut',
-    data: {
-      labels: aides.length > 0 ? Object.keys(regionCounts) : ['Aucune donnée'],
-      datasets: [{
-        data: aides.length > 0 ? Object.values(regionCounts) : [1],
-        backgroundColor: aides.length > 0 ? ['#1e40af', '#10b981', '#64748b'] : ['#cccccc']
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', display: aides.length > 0},
-        tooltip: { ...pieTooltipCallback, enabled: aides.length > 0 }
-      }
-    }
-  });
+  const regionCtx = ensureChartContainer('region-chart', 'Répartition Nationale/Territoriale', chartsGrid);
+  if (regionCtx) {
+    if (regionChart) { regionChart.destroy(); }
+    regionChart = new Chart(regionCtx, {
+        type: 'doughnut',
+        data: {
+        labels: aides.length > 0 ? Object.keys(regionCounts) : ['Aucune donnée'],
+        datasets: [{ data: aides.length > 0 ? Object.values(regionCounts) : [1], backgroundColor: aides.length > 0 ? ['#1e40af', '#10b981', '#64748b'] : ['#cccccc']}]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', display: aides.length > 0 }, tooltip: { ...pieTooltipCallback, enabled: aides.length > 0 } } }
+    });
+  }
 
   // 4. Age Chart
   const ageCounts = { 'Moins de 3 ans': 0, 'Plus de 3 ans': 0, 'Tout âge': 0, 'Non spécifié': 0 };
@@ -311,26 +302,18 @@ function createCharts(aides) {
         else ageCounts['Tout âge']++;
     });
   }
-
-  const ageCtx = document.getElementById('age-chart').getContext('2d');
-  if (ageChart) { ageChart.destroy(); }
-  ageChart = new Chart(ageCtx, {
-    type: 'bar',
-    data: {
-      labels: Object.keys(ageCounts),
-      datasets: [{
-        label: "Nombre d'aides",
-        data: Object.values(ageCounts),
-        backgroundColor: '#f59e0b'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, suggestedMax: aides.length > 0 ? undefined : 10 } }
-    }
-  });
+  const ageCtx = ensureChartContainer('age-chart', "Répartition par âge d'entreprise requis", chartsGrid);
+  if(ageCtx){
+    if (ageChart) { ageChart.destroy(); }
+    ageChart = new Chart(ageCtx, {
+        type: 'bar',
+        data: {
+        labels: Object.keys(ageCounts),
+        datasets: [{ label: "Nombre d'aides", data: Object.values(ageCounts), backgroundColor: '#f59e0b' }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, suggestedMax: aides.length > 0 ? undefined : 10 } } }
+    });
+  }
 }
 
 function displayAidCards(aides, page = 1) {
@@ -347,7 +330,7 @@ function displayAidCards(aides, page = 1) {
   const displayedAides = allAides.slice(startIndex, endIndex);
 
   if (allAides.length === 0) {
-    gridContainer.innerHTML = '<div class="no-results" style="text-align:center; padding:2rem; color:var(--gray);">ZERO. NADA. RIEN. Aucune aide trouvée.</div>';
+    gridContainer.innerHTML = '<div class="no-results" style="text-align:center; padding:2rem; color:var(--gray);">Aucune aide trouvée. Essayez d\'ajuster vos filtres ou termes de recherche.</div>';
     const paginationEl = document.getElementById('pagination');
     if (paginationEl) paginationEl.innerHTML = '';
     return;
@@ -402,13 +385,13 @@ function displayAidCards(aides, page = 1) {
     button.addEventListener('click', function() {
       const aideId = this.getAttribute('data-id');
       if (!aideId) {
-        console.warn("View details clicked on a card with no ID.");
+        console.warn("View details: no ID on card.");
         return;
       }
       const sourceAides = window.currentAides || [];
       const aide = sourceAides.find(a => a && String(a.id_aid) === aideId);
       if (aide) { showAideDetails(aide); }
-      else { console.error("Aide non trouvée pour ID:", aideId, "Source (first 5):", sourceAides.slice(0,5)); }
+      else { console.error("Aide non trouvée pour ID:", aideId); }
     });
   });
 
@@ -428,17 +411,20 @@ function createPagination(totalItems, itemsPerPage, currentPage) {
 
   if (totalPages <= 1) return;
 
-  const prevButton = document.createElement('button');
-  prevButton.className = 'pagination-button';
-  prevButton.innerHTML = '«';
-  prevButton.disabled = currentPage === 1;
-  prevButton.addEventListener('click', () => {
-    if (currentPage > 1) {
+  const createPageButton = (text, pageNum, isDisabled = false, isActive = false) => {
+    const button = document.createElement('button');
+    button.className = 'pagination-button';
+    button.innerHTML = text;
+    button.disabled = isDisabled;
+    if (isActive) button.classList.add('active');
+    button.addEventListener('click', () => {
       const filteredAides = getFilteredAides(window.currentAides || []);
-      displayAidCards(filteredAides, currentPage - 1);
-    }
-  });
-  paginationContainer.appendChild(prevButton);
+      displayAidCards(filteredAides, pageNum);
+    });
+    return button;
+  };
+  
+  paginationContainer.appendChild(createPageButton('«', currentPage - 1, currentPage === 1));
 
   const maxVisiblePages = 5;
   let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
@@ -452,14 +438,7 @@ function createPagination(totalItems, itemsPerPage, currentPage) {
   }
 
   if (startPage > 1) {
-    const firstButton = document.createElement('button');
-    firstButton.className = 'pagination-button';
-    firstButton.textContent = '1';
-    firstButton.addEventListener('click', () => {
-        const filteredAides = getFilteredAides(window.currentAides || []);
-        displayAidCards(filteredAides, 1);
-    });
-    paginationContainer.appendChild(firstButton);
+    paginationContainer.appendChild(createPageButton('1', 1));
     if (startPage > 2) {
         const ellipsis = document.createElement('span');
         ellipsis.className = 'pagination-ellipsis';
@@ -469,15 +448,7 @@ function createPagination(totalItems, itemsPerPage, currentPage) {
   }
 
   for (let i = startPage; i <= endPage; i++) {
-    const pageButton = document.createElement('button');
-    pageButton.className = 'pagination-button';
-    if (i === currentPage) pageButton.classList.add('active');
-    pageButton.textContent = i;
-    pageButton.addEventListener('click', () => {
-      const filteredAides = getFilteredAides(window.currentAides || []);
-      displayAidCards(filteredAides, i);
-    });
-    paginationContainer.appendChild(pageButton);
+    paginationContainer.appendChild(createPageButton(i, i, false, i === currentPage));
   }
 
   if (endPage < totalPages) {
@@ -487,89 +458,67 @@ function createPagination(totalItems, itemsPerPage, currentPage) {
         ellipsis.textContent = '...';
         paginationContainer.appendChild(ellipsis);
     }
-    const lastButton = document.createElement('button');
-    lastButton.className = 'pagination-button';
-    lastButton.textContent = totalPages;
-    lastButton.addEventListener('click', () => {
-        const filteredAides = getFilteredAides(window.currentAides || []);
-        displayAidCards(filteredAides, totalPages);
-    });
-    paginationContainer.appendChild(lastButton);
+    paginationContainer.appendChild(createPageButton(totalPages, totalPages));
   }
-
-  const nextButton = document.createElement('button');
-  nextButton.className = 'pagination-button';
-  nextButton.innerHTML = '»';
-  nextButton.disabled = currentPage === totalPages;
-  nextButton.addEventListener('click', () => {
-    if (currentPage < totalPages) {
-      const filteredAides = getFilteredAides(window.currentAides || []);
-      displayAidCards(filteredAides, currentPage + 1);
-    }
-  });
-  paginationContainer.appendChild(nextButton);
+  
+  paginationContainer.appendChild(createPageButton('»', currentPage + 1, currentPage === totalPages));
 }
+
 
 function initSearchAndFilters(aidesInput) {
   const aides = Array.isArray(aidesInput) ? aidesInput : [];
+  window.currentAides = aides; // Ensure global currentAides is set
+
   const searchForm = document.getElementById('search-form');
   const applyFiltersBtn = document.getElementById('apply-filters');
   const resetFiltersBtn = document.getElementById('reset-filters');
   const categorySelect = document.getElementById('category');
 
+  const performSearchAndFilter = () => {
+    const searchInput = document.getElementById('search-input');
+    const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
+    const filteredAides = getFilteredAides(window.currentAides || [], searchTerm); // Use window.currentAides
+    displayAidCards(filteredAides, 1);
+  };
+
   if(searchForm) {
-    searchForm.addEventListener('submit', function(e) {
+    searchForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      const searchInput = document.getElementById('search-input');
-      const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
-      const filteredAides = getFilteredAides(window.currentAides || [], searchTerm);
-      displayAidCards(filteredAides, 1);
+      performSearchAndFilter();
     });
   }
 
   if(applyFiltersBtn) {
-    applyFiltersBtn.addEventListener('click', function() {
-      const searchInput = document.getElementById('search-input');
-      const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : "";
-      const filteredAides = getFilteredAides(window.currentAides || [], searchTerm);
-      displayAidCards(filteredAides, 1);
-    });
+    applyFiltersBtn.addEventListener('click', performSearchAndFilter);
   }
 
   if(resetFiltersBtn) {
-    resetFiltersBtn.addEventListener('click', function() {
+    resetFiltersBtn.addEventListener('click', () => {
       const searchInput = document.getElementById('search-input');
       if(searchInput) searchInput.value = '';
       if(categorySelect) categorySelect.value = '';
-
-      const companySizeSelect = document.getElementById('company-size');
-      if(companySizeSelect) companySizeSelect.value = '';
-
-      const companyAgeSelect = document.getElementById('company-age');
-      if(companyAgeSelect) companyAgeSelect.value = '';
-
-      const geographySelect = document.getElementById('geography');
-      if(geographySelect) geographySelect.value = '';
-
-      displayAidCards(window.currentAides || [], 1);
+      document.getElementById('company-size').value = '';
+      document.getElementById('company-age').value = '';
+      document.getElementById('geography').value = '';
+      displayAidCards(window.currentAides || [], 1); // Display all original aides
     });
   }
 
+  // Populate category dropdown
   if(categorySelect) {
     const categories = new Set();
     if (aides.length > 0) {
       aides.forEach(aide => {
           if (aide && aide.id_domaine && typeof aide.id_domaine === 'string') {
-            const cats = aide.id_domaine.split(',').map(cat => cat.trim());
-            cats.forEach(cat => {
+            aide.id_domaine.split(',').map(cat => cat.trim()).forEach(cat => {
                 if (cat) categories.add(cat);
             });
           }
       });
     }
     const sortedCategories = Array.from(categories).sort((a, b) => a.localeCompare(b, 'fr'));
-
-
+    
+    // Clear existing options except the first "Toutes catégories"
     while (categorySelect.options.length > 1) {
       categorySelect.remove(1);
     }
@@ -584,66 +533,56 @@ function initSearchAndFilters(aidesInput) {
 
 function getFilteredAides(allAidesInput, searchTerm = null) {
   const allAides = Array.isArray(allAidesInput) ? allAidesInput : [];
-  if (!Array.isArray(allAides)) {
-    console.error("getFilteredAides received non-array input for allAides:", allAides);
-    return [];
-  }
 
   const searchInputEl = document.getElementById('search-input');
-  const categoryEl = document.getElementById('category');
-  const companySizeEl = document.getElementById('company-size');
-  const companyAgeEl = document.getElementById('company-age');
-  const geographyEl = document.getElementById('geography');
+  const currentSearchTerm = (searchTerm !== null ? searchTerm : (searchInputEl ? searchInputEl.value.toLowerCase().trim() : ""))
+                            .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Accent removal
 
-  const currentSearchTerm = (searchTerm !== null ? searchTerm : (searchInputEl ? searchInputEl.value.toLowerCase().trim() : "")).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const category = categoryEl ? categoryEl.value : "";
-  const companySize = companySizeEl ? companySizeEl.value : "";
-  const companyAge = companyAgeEl ? companyAgeEl.value : "";
-  const geography = geographyEl ? geographyEl.value : "";
+  const category = document.getElementById('category').value;
+  const companySize = document.getElementById('company-size').value;
+  const companyAge = document.getElementById('company-age').value;
+  const geography = document.getElementById('geography').value;
 
   return allAides.filter(aide => {
     if (!aide) return false;
 
+    // Search term filter (normalized)
     if (currentSearchTerm) {
-      const name = (aide.aid_nom && typeof aide.aid_nom === 'string' ? aide.aid_nom : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const objet = (aide.aid_objet && typeof aide.aid_objet === 'string' ? aide.aid_objet : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const benef = (aide.aid_benef && typeof aide.aid_benef === 'string' ? aide.aid_benef : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const domaine = (aide.id_domaine && typeof aide.id_domaine === 'string' ? aide.id_domaine : "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-      if (!name.includes(currentSearchTerm) &&
-          !objet.includes(currentSearchTerm) &&
-          !benef.includes(currentSearchTerm) &&
-          !domaine.includes(currentSearchTerm)) {
+      const name = (aide.aid_nom || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const objet = (aide.aid_objet || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const benef = (aide.aid_benef || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const domaine = (aide.id_domaine || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (!name.includes(currentSearchTerm) && !objet.includes(currentSearchTerm) &&
+          !benef.includes(currentSearchTerm) && !domaine.includes(currentSearchTerm)) {
         return false;
       }
     }
 
-    if (category) {
-      if (!aide.id_domaine || typeof aide.id_domaine !== 'string' || !aide.id_domaine.split(',').map(cat => cat.trim()).includes(category)) return false;
+    if (category && (!aide.id_domaine || !aide.id_domaine.split(',').map(c => c.trim()).includes(category))) {
+      return false;
     }
 
     if (companySize) {
-        const aideEffectif = (aide.effectif && typeof aide.effectif === 'string' ? aide.effectif : '').toLowerCase();
-        if (!aideEffectif && companySize) return false;
-        let sizeMatch = aideEffectif.includes('tous') || aideEffectif.includes('all');
-        if (!sizeMatch) {
-            switch(companySize) {
-                case "-10": sizeMatch = aideEffectif.includes('-10') || aideEffectif.includes('-5'); break;
-                case "10-49": sizeMatch = aideEffectif.includes('10-49'); break;
-                case "50-249": sizeMatch = aideEffectif.includes('50-249'); break;
-                case "250 et plus": sizeMatch = aideEffectif.includes('250 et plus'); break;
-            }
+        const aideEffectif = (aide.effectif || '').toLowerCase();
+        if (!aideEffectif.includes('tous') && !aideEffectif.includes('all')) { // If not "all sizes"
+            let sizeMatch = false;
+            if (companySize === "-10" && (aideEffectif.includes('-10') || aideEffectif.includes('-5'))) sizeMatch = true;
+            else if (companySize === "10-49" && aideEffectif.includes('10-49')) sizeMatch = true;
+            else if (companySize === "50-249" && aideEffectif.includes('50-249')) sizeMatch = true;
+            else if (companySize === "250 et plus" && aideEffectif.includes('250 et plus')) sizeMatch = true;
+            if (!sizeMatch) return false;
         }
-        if (!sizeMatch && ! (aideEffectif.includes('tous') || aideEffectif.includes('all')) ) return false;
     }
 
     if (companyAge) {
-      const aideAge = (aide.age_entreprise && typeof aide.age_entreprise === 'string' ? aide.age_entreprise : '');
-      if (!aideAge.includes(companyAge) && !aideAge.toLowerCase().includes('tout') && !aideAge.toLowerCase().includes('all')) return false;
+      const aideAge = (aide.age_entreprise || '').toLowerCase();
+      if (!aideAge.includes('tout') && !aideAge.includes('all') && !aideAge.includes(companyAge.toLowerCase())) {
+        return false;
+      }
     }
 
-    if (geography) {
-      if (aide.couverture_geo !== geography) return false;
+    if (geography && aide.couverture_geo !== geography) {
+      return false;
     }
 
     return true;
@@ -652,7 +591,7 @@ function getFilteredAides(allAidesInput, searchTerm = null) {
 
 function showAideDetails(aide) {
   if (!aide) {
-    console.error("showAideDetails called with null/undefined aide.");
+    console.error("showAideDetails: aide est null/undefined.");
     return;
   }
   const modal = document.getElementById('detail-modal');
@@ -661,47 +600,39 @@ function showAideDetails(aide) {
   const modalBody = document.getElementById('modal-body');
 
   if (!modal || !modalTitle || !modalSubtitle || !modalBody) {
-    console.error("Modal elements not found!");
+    console.error("Éléments du modal non trouvés!");
     return;
   }
 
   modalTitle.textContent = aide.aid_nom || 'Sans titre';
-  const categories = (aide.id_domaine && typeof aide.id_domaine ==='string' ? aide.id_domaine : 'Non spécifié').split(',').map(cat => cat.trim()).join(', ');
+  const categories = (aide.id_domaine || 'Non spécifié').split(',').map(cat => cat.trim()).join(', ');
   modalSubtitle.textContent = `${(aide.couverture_geo || 'Non spécifié')} - ${categories}`;
 
   let bodyContent = "";
-  const addSection = (title, contentInput) => {
-    const content = contentInput && typeof contentInput === 'string' ? String(contentInput).trim() : '';
-    if (content) {
-      bodyContent += `
-        <div class="modal-section">
-          <h3 class="modal-section-title">${title}</h3>
-          <div class="modal-text">${content}</div>
-        </div>`;
+  const addDetailSection = (title, content) => {
+    const cleanContent = (content && typeof content === 'string') ? content.trim() : '';
+    if (cleanContent) {
+      bodyContent += `<div class="modal-section"><h3 class="modal-section-title">${title}</h3><div class="modal-text">${cleanContent}</div></div>`;
     }
   };
 
-  addSection('Objectif', aide.aid_objet);
-  addSection('Opérations éligibles', aide.aid_operations_el);
-  addSection('Conditions', aide.aid_conditions);
-  addSection('Montant', aide.aid_montant);
-  addSection('Bénéficiaires', aide.aid_benef);
+  addDetailSection('Objectif', aide.aid_objet);
+  addDetailSection('Opérations éligibles', aide.aid_operations_el);
+  addDetailSection('Conditions', aide.aid_conditions);
+  addDetailSection('Montant', aide.aid_montant);
+  addDetailSection('Bénéficiaires', aide.aid_benef);
 
   let complementInfo = `<p><strong>Taille d'entreprise :</strong> ${(aide.effectif || 'Non spécifié')}</p>
                         <p><strong>Âge d'entreprise :</strong> ${(aide.age_entreprise || 'Non spécifié')}</p>
                         <p><strong>Date de fin :</strong> ${(aide.aid_validation || 'Non spécifié')}</p>`;
-  addSection('Informations complémentaires', complementInfo);
+  addDetailSection('Informations complémentaires', complementInfo);
 
   let linksContent = "";
-  if (aide.complements_sources && typeof aide.complements_sources === 'string') {
-    linksContent += `<p><strong>Sources d'information :</strong> ${formatLinks(aide.complements_sources)}</p>`;
-  }
-  if (aide.complements_formulaires && typeof aide.complements_formulaires === 'string') {
-    linksContent += `<p><strong>Formulaires de demande :</strong> ${formatLinks(aide.complements_formulaires)}</p>`;
-  }
-  if (linksContent) addSection('Liens utiles', linksContent);
+  if (aide.complements_sources) linksContent += `<p><strong>Sources :</strong> ${formatLinks(aide.complements_sources)}</p>`;
+  if (aide.complements_formulaires) linksContent += `<p><strong>Formulaires :</strong> ${formatLinks(aide.complements_formulaires)}</p>`;
+  if (linksContent) addDetailSection('Liens utiles', linksContent);
 
-  modalBody.innerHTML = bodyContent || '<p>Aucun détail spécifique disponible pour cette aide.</p>';
+  modalBody.innerHTML = bodyContent || '<p>Aucun détail spécifique disponible.</p>';
   modal.classList.add('open');
 }
 
@@ -713,45 +644,45 @@ function formatLinks(text) {
 
 function initModal() {
   const modal = document.getElementById('detail-modal');
-  const modalContent = document.querySelector('.modal-content');
+  const modalContent = modal?.querySelector('.modal-content'); // More specific
   const closeBtn = document.getElementById('modal-close');
   const closeBtnFooter = document.getElementById('modal-close-btn');
 
   if (!modal || !modalContent || !closeBtn || !closeBtnFooter) {
-    console.warn("Modal elements missing, modal functionality might be impaired. Ensure modal HTML is correct.");
+    console.warn("Éléments du modal manquants.");
     return;
   }
 
   const closeModal = () => modal.classList.remove('open');
-
   closeBtn.addEventListener('click', closeModal);
   closeBtnFooter.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal();
-  });
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
   modalContent.addEventListener('click', (e) => e.stopPropagation());
 }
 
+// Initial DOMContentLoaded
 document.addEventListener('DOMContentLoaded', function() {
-  console.log("DOM LOADED. GITHUB PAGES CSV FILE PROTOCOL ENGAGED. FORTITUDE AND PERSEVERANCE!");
+  console.log("DOM chargé. Protocole de fichier CSV GitHub Pages engagé.");
   initModal();
 
-  const DATA_URL = "https://bros-ai.github.io/Aide-Financement-Entreprise/aides.csv";
-
+  // Initialize UI elements with empty/default state BEFORE data loads
   updateStatistics([]);
   createCharts([]);
-  displayAidCards([]);
-  initSearchAndFilters([]);
+  displayAidCards([]); // Will show "no results" or loading spinner
+  initSearchAndFilters([]); // Filters will be empty until data loads
+
+  const DATA_URL = "https://bros-ai.github.io/Aide-Financement-Entreprise/aides.csv";
+  // const DATA_URL = "./aides.csv"; // For local testing if aides.csv is in the same folder
 
   loadDataFromURLManualFetch(DATA_URL)
     .then(() => {
-      console.log("Initial data load attempt finished (async). UI should be updated via Papa.complete.");
+      console.log("Tentative de chargement initial des données terminée (asynchrone).");
     })
-    .catch(error => {
-      console.error("Error during loadDataFromURLManualFetch promise chain execution:", error);
+    .catch(error => { // This catch is for critical errors in loadDataFromURLManualFetch promise itself
+      console.error("Erreur critique durant l'exécution de la chaîne de promesses loadDataFromURLManualFetch:", error);
       const fundingGrid = document.getElementById('funding-grid');
       if (fundingGrid) {
-        fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">FATAL ERROR: Impossible de charger les données. Contactez l'administrateur. <br>Détail: ${error.message}</div>`;
+        fundingGrid.innerHTML = `<div style="text-align:center; padding:2rem; color:#e11d48;">ERREUR FATALE: Impossible de charger les données. <br>Détail: ${error.message}</div>`;
       }
     });
 });
